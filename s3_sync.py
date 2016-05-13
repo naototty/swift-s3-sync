@@ -17,7 +17,7 @@ from swift.common.utils import whataremyips, hash_path, storage_directory, parse
 from swift.common.wsgi import ConfigString
 from swift.container.backend import DATADIR, ContainerBroker
 
-from utils import convert_to_s3_headers, get_s3_name, FileWrapper
+from utils import convert_to_s3_headers, get_s3_name, FileWrapper, is_object_meta_synced
 
 internal_client_config = """
 [DEFAULT]
@@ -128,18 +128,6 @@ class S3Sync(Daemon):
     def is_object_synced(self, s3_info, swift_info):
         return ('"%s"' % swift_info['etag']) == s3_info['ETag']
 
-    def is_object_meta_synced(self, s3_info, swift_info):
-        swift_prefix = 'x-object-meta-'
-        swift_keys = set([key[len(swift_prefix):] for key in swift_info if
-                          key.startswith(swift_prefix)])
-        s3_keys = set(s3_info['Metadata'].keys())
-        if set(swift_keys) != set(s3_keys):
-            return False
-        for key in s3_keys:
-            if s3_info['Metadata'][key] != swift_info[swift_prefix + key]:
-                return False
-        return True
-
     def upload_object(self, account, container, row):
         key = get_s3_name(account, container, row['name'])
         missing = False
@@ -159,7 +147,7 @@ class S3Sync(Daemon):
             metadata = self.swift.get_object_metadata(account, container,
                 row['name'], headers=swift_req_hdrs)
             if self.is_object_synced(resp, metadata):
-                if self.is_object_meta_synced(resp, metadata):
+                if is_object_meta_synced(resp['Metadata'], metadata):
                     return
 
                 # Update the headers
