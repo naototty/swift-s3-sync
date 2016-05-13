@@ -26,7 +26,7 @@ class FileWrapper(object):
         if status != 200:
             raise RuntimeError('Failed to get the object')
         self._iter = FileLikeIter(body)
-        self._s3_headers = convert_to_s3_headers(self._headers)       
+        self._s3_headers = convert_to_s3_headers(self._headers)
 
     def seek(self, pos, flag=0):
         if pos != 0:

@@ -13,7 +13,7 @@ from swift.common.db import DatabaseConnectionError
 from swift.common.internal_client import InternalClient
 from swift.common.ring import Ring
 from swift.common.ring.utils import is_local_device
-from swift.common.utils import whataremyips, hash_path, storage_directory, parse_options, readconf
+from swift.common.utils import whataremyips, hash_path, storage_directory
 from swift.common.wsgi import ConfigString
 from swift.container.backend import DATADIR, ContainerBroker
 
@@ -87,7 +87,6 @@ class S3Sync(Daemon):
         boto_session = boto3.session.Session(aws_access_key_id=self.aws_id,
                                              aws_secret_access_key=self.aws_secret)
 
-        config = boto3.session.Config()
         if not self.aws_endpoint.endswith('amazonaws.com'):
             # Required for supporting S3 clones
             config = boto3.session.Config(s3={'addressing_style': 'path'})
@@ -216,19 +215,12 @@ class S3Sync(Daemon):
             try:
                 items = broker.get_items_since(start, self.items_chunk)
             except DatabaseConnectionError as e:
-                print 'Connection error: ', str(e)
                 continue
             if items:
                 self.sync_items(account, container, items, nodes_count, index)
                 self.s3_sync_meta['last_row'] = items[-1]['ROWID']
                 self.save_sync_meta(account, container, self.s3_sync_meta)
             return
-
-    def run_always(self):
-        while True:
-            self.sync_container('AUTH_swiftstack', 'demo')
-            time.sleep(5)
-
 
     def run_once(self):
         #while True:
@@ -237,8 +229,4 @@ class S3Sync(Daemon):
         #        self.sync_container(container)
         #    if time.time() - cycle_start < interval:
         #        time.sleep(interval)
-        self.sync_container('AUTH_swiftstack', 'demo')
-
-conf_file, options = parse_options(once=True)
-conf = readconf(conf_file, 's3sync')
-S3Sync(conf).run_always()
+        self.sync_container('AUTH_test', 'sync-test-0')
