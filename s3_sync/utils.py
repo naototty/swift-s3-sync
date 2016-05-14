@@ -53,7 +53,7 @@ def convert_to_s3_headers(swift_headers):
     s3_headers = {}
     for hdr in swift_headers.keys():
         if hdr.lower().startswith(SWIFT_USER_META_PREFIX):
-            s3_header_name = hdr[len(SWIFT_USER_META_PREFIX):]
+            s3_header_name = hdr[len(SWIFT_USER_META_PREFIX):].lower()
             s3_headers[s3_header_name] = urllib.quote(swift_headers[hdr])
     return s3_headers
 
