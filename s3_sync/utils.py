@@ -9,6 +9,7 @@ SWIFT_USER_META_PREFIX = 'x-object-meta-'
 # S3 prefix space: 6 16 digit characters
 PREFIX_SPACE = 16**6
 
+
 class FileWrapper(object):
     def __init__(self, swift_client, account, container, key, headers={}):
         self._swift = swift_client
@@ -56,6 +57,7 @@ def convert_to_s3_headers(swift_headers):
             s3_headers[s3_header_name] = urllib.quote(swift_headers[hdr])
     return s3_headers
 
+
 def is_object_meta_synced(s3_meta, swift_meta):
     swift_keys = set([key[len(SWIFT_USER_META_PREFIX):] for key in swift_meta
                       if key.startswith(SWIFT_USER_META_PREFIX)])
@@ -67,6 +69,7 @@ def is_object_meta_synced(s3_meta, swift_meta):
         if s3_meta[key] != swift_value:
             return False
     return True
+
 
 def get_s3_name(account, container, key):
     md5_hash = hashlib.md5('%s/%s/%s' % (account, container, key)).hexdigest()

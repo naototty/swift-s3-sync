@@ -1,12 +1,9 @@
 import boto3
 import botocore.exceptions
 from botocore.handlers import conditionally_calculate_md5
-import httplib
 import json
-import logging
 import os
 import os.path
-import time
 
 from swift.common.daemon import Daemon
 from swift.common.db import DatabaseConnectionError
@@ -17,7 +14,9 @@ from swift.common.utils import whataremyips, hash_path, storage_directory
 from swift.common.wsgi import ConfigString
 from swift.container.backend import DATADIR, ContainerBroker
 
-from utils import convert_to_s3_headers, get_s3_name, FileWrapper, is_object_meta_synced
+from .utils import (convert_to_s3_headers, get_s3_name, FileWrapper,
+                    is_object_meta_synced)
+
 
 internal_client_config = """
 [DEFAULT]
@@ -84,8 +83,9 @@ class S3Sync(Daemon):
         self.aws_bucket = conf.get('aws_bucket')
         # assumes local swift-proxy
         self.aws_endpoint = conf.get('aws_endpoint', 'http://127.0.0.1:8080')
-        boto_session = boto3.session.Session(aws_access_key_id=self.aws_id,
-                                             aws_secret_access_key=self.aws_secret)
+        boto_session = boto3.session.Session(
+                aws_access_key_id=self.aws_id,
+                aws_secret_access_key=self.aws_secret)
 
         if not self.aws_endpoint.endswith('amazonaws.com'):
             # Required for supporting S3 clones
@@ -104,7 +104,7 @@ class S3Sync(Daemon):
         db_hash = hash_path(account, container)
         db_dir = storage_directory(DATADIR, part, db_hash)
         db_path = os.path.join(self.root, node['device'], db_dir,
-            db_hash + '.db')
+                               db_hash + '.db')
         return ContainerBroker(db_path, account=account, container=container)
 
     def load_sync_meta(self, account, container):
@@ -144,7 +144,8 @@ class S3Sync(Daemon):
         }
         if not missing:
             metadata = self.swift.get_object_metadata(account, container,
-                row['name'], headers=swift_req_hdrs)
+                                                      row['name'],
+                                                      headers=swift_req_hdrs)
             if self.is_object_synced(resp, metadata):
                 if is_object_meta_synced(resp['Metadata'], metadata):
                     return
@@ -159,12 +160,11 @@ class S3Sync(Daemon):
                 return
 
         wrapper_stream = FileWrapper(self.swift, account, container,
-            row['name'], swift_req_hdrs)
+                                     row['name'], swift_req_hdrs)
         self.s3_client.put_object(Bucket=self.aws_bucket,
                                   Key=key,
                                   Body=wrapper_stream,
-                                  Metadata=wrapper_stream.get_s3_headers(),
-                                 )
+                                  Metadata=wrapper_stream.get_s3_headers())
         return
 
     def delete_object(self, account, container, row):
@@ -200,11 +200,10 @@ class S3Sync(Daemon):
     def sync_container(self, account, container):
         part, container_nodes = self.container_ring.get_nodes(account,
                                                               container)
-        node_id = None
         nodes_count = len(container_nodes)
         for index, node in enumerate(container_nodes):
             if not is_local_device(self.myips, None, node['ip'],
-                               node['port']):
+                                   node['port']):
                 continue
             self.s3_sync_meta = self.load_sync_meta(account, container)
             if self.s3_sync_meta:
@@ -214,7 +213,7 @@ class S3Sync(Daemon):
             broker = self.get_broker(account, container, part, node)
             try:
                 items = broker.get_items_since(start, self.items_chunk)
-            except DatabaseConnectionError as e:
+            except DatabaseConnectionError:
                 continue
             if items:
                 self.sync_items(account, container, items, nodes_count, index)
@@ -223,7 +222,7 @@ class S3Sync(Daemon):
             return
 
     def run_once(self):
-        #while True:
+        # while True:
         #    cycle_start = time.time()
         #    for container in self.conf.get('containers'):
         #        self.sync_container(container)
