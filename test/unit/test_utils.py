@@ -1,7 +1,6 @@
 from s3_sync import utils
 
 import unittest
-import mock
 
 
 class TestUtilsFunctions(unittest.TestCase):
@@ -20,19 +19,15 @@ class TestUtilsFunctions(unittest.TestCase):
     def test_is_object_meta_synced(self):
         # The structure for each entry is: swift meta, s3 meta, whether they
         # should be equal.
-        test_metas = [({ 'x-object-meta-upper': 'UPPER',
-                         'x-object-meta-lower': 'lower'
-                       },
-                       { 'upper': 'UPPER',
-                         'lower': 'lower'
-                       },
+        test_metas = [({'x-object-meta-upper': 'UPPER',
+                        'x-object-meta-lower': 'lower'},
+                       {'upper': 'UPPER',
+                        'lower': 'lower'},
                        True),
-                      ({ 'x-object-meta-foo': 'foo',
-                         'x-object-meta-foo': 'bar'
-                       },
-                       { 'foo': 'not foo',
-                         'bar': 'bar'
-                       },
+                      ({'x-object-meta-foo': 'foo',
+                        'x-object-meta-foo': 'bar'},
+                       {'foo': 'not foo',
+                        'bar': 'bar'},
                        False)]
         for swift_meta, s3_meta, expected in test_metas:
             self.assertEqual(expected, utils.is_object_meta_synced(s3_meta,
@@ -76,7 +71,6 @@ class TestFileWrapper(unittest.TestCase):
         def __iter__(self):
             return self
 
-
     class FakeSwift(object):
         def __init__(self):
             self.size = 1024
@@ -85,9 +79,8 @@ class TestFileWrapper(unittest.TestCase):
         def get_object(self, account, container, key, headers={}):
             self.fake_stream = TestFileWrapper.FakeStream(self.size)
             return (self.status,
-                    { 'Content-Length': self.size },
+                    {'Content-Length': self.size},
                     self.fake_stream)
-
 
     def setUp(self):
         self.mock_swift = self.FakeSwift()
