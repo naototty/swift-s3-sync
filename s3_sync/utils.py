@@ -7,7 +7,8 @@ from swift.common.utils import FileLikeIter
 SWIFT_USER_META_PREFIX = 'x-object-meta-'
 
 # S3 prefix space: 6 16 digit characters
-PREFIX_SPACE = 16**6
+PREFIX_LEN = 6
+PREFIX_SPACE = 16**PREFIX_LEN
 
 
 class FileWrapper(object):

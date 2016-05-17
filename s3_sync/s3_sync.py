@@ -172,9 +172,6 @@ class S3Sync(Daemon):
         return self.s3_client.delete_object(Bucket=self.aws_bucket, Key=key)
 
     def sync_row(self, row, account, container):
-        # Sync the row to S3 (PUT/POST/DELETE) and mark the sync flag if
-        # necessary. Should do a HEAD first.
-        # TODO: use boto to propagate changes
         if row['deleted']:
             return self.delete_object(account, container, row)
         return self.upload_object(account, container, row)
