@@ -124,9 +124,6 @@ class S3Sync(Daemon):
         with open(scratch_file, 'w') as f:
             json.dump(sync_meta, f)
 
-    def is_object_synced(self, s3_info, swift_info):
-        return ('"%s"' % swift_info['etag']) == s3_info['ETag']
-
     def upload_object(self, account, container, row):
         key = get_s3_name(account, container, row['name'])
         missing = False
@@ -146,7 +143,7 @@ class S3Sync(Daemon):
             metadata = self.swift.get_object_metadata(account, container,
                                                       row['name'],
                                                       headers=swift_req_hdrs)
-            if self.is_object_synced(resp, metadata):
+            if resp['ETag'] == metadata['etag']:
                 if is_object_meta_synced(resp['Metadata'], metadata):
                     return
 
