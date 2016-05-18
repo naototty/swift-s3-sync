@@ -178,14 +178,16 @@ class S3Sync(Daemon):
         for row in rows:
             if (row['ROWID'] % nodes_count) != node_id:
                 continue
-            print 'propagating %s' % row['ROWID']
+            if self.logger:
+                self.logger.debug('propagating %s' % row['ROWID'])
             self.sync_row(row, account, container)
 
         for row in rows:
             # Validate that changes from all other rows have also been sync'd.
             if (row['ROWID'] % nodes_count) == node_id:
                 continue
-            print 'verifiying %s' % row['ROWID']
+            if self.logger:
+                self.logger.debug('verifiying %s' % row['ROWID'])
             self.sync_row(row, account, container)
 
     def get_items_since(self, broker, since_start):
