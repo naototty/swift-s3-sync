@@ -163,3 +163,22 @@ class TestS3Sync(unittest.TestCase):
 
         self.mock_boto3_client.copy_object.assert_not_called()
         self.mock_boto3_client.put_object.assert_not_called()
+
+    def test_sync_items(self):
+        total_rows = 20
+        items = [{'ROWID': x} for x in range(0, total_rows)]
+
+        for nodes in range(1, 7):
+            for node_id in range(0, nodes):
+                self.s3_sync.sync_row = mock.Mock()
+                sync_calls = filter(lambda x: x%nodes == node_id,
+                                    range(0, total_rows))
+                verify_calls = filter(lambda x: x not in sync_calls,
+                                      range(0, total_rows))
+
+                self.s3_sync.sync_items('foo', 'bar', items, nodes, node_id)
+                expected = [mock.call({'ROWID': x}, 'foo', 'bar') for x in
+                            sync_calls]
+                expected += [mock.call({'ROWID': x}, 'foo', 'bar') for x in
+                             verify_calls]
+                self.assertTrue(expected == self.s3_sync.sync_row.call_args_list)
