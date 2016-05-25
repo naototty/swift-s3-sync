@@ -33,18 +33,6 @@ class TestUtilsFunctions(unittest.TestCase):
             self.assertEqual(expected, utils.is_object_meta_synced(s3_meta,
                                                                    swift_meta))
 
-    def test_s3_name(self):
-        test_data = [('AUTH_test', 'container', 'key'),
-                     ('swift', 'stuff', 'my/key')]
-        for account, container, key in test_data:
-            # Verify that the get_s3_name function is deteministic
-            self.assertEqual(utils.get_s3_name(account, container, key),
-                             utils.get_s3_name(account, container, key))
-            s3_key = utils.get_s3_name(account, container, key)
-            prefix, remainder = s3_key.split('/', 1)
-            self.assertEqual(remainder, '/'.join((account, container, key)))
-            self.assertTrue(len(prefix) and len(prefix) <= utils.PREFIX_LEN)
-
 
 class TestFileWrapper(unittest.TestCase):
     class FakeStream(object):

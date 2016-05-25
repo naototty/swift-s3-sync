@@ -1,14 +1,9 @@
-import hashlib
 import urllib
 
 from swift.common.utils import FileLikeIter
 
 
 SWIFT_USER_META_PREFIX = 'x-object-meta-'
-
-# S3 prefix space: 6 16 digit characters
-PREFIX_LEN = 6
-PREFIX_SPACE = 16**PREFIX_LEN
 
 
 class FileWrapper(object):
@@ -17,7 +12,6 @@ class FileWrapper(object):
         self._account = account
         self._container = container
         self._key = key
-        self._s3_key = get_s3_name(account, container, key)
         self.swift_req_hdrs = headers
         self.open_object_stream()
 
@@ -70,10 +64,3 @@ def is_object_meta_synced(s3_meta, swift_meta):
         if s3_meta[key] != swift_value:
             return False
     return True
-
-
-def get_s3_name(account, container, key):
-    md5_hash = hashlib.md5('%s/%s/%s' % (account, container, key)).hexdigest()
-    # strip off 0x and L
-    prefix = hex(long(md5_hash, 16) % PREFIX_SPACE)[2:-1]
-    return '%s/%s/%s/%s' % (prefix, account, container, key)
