@@ -23,7 +23,7 @@ class S3Sync(object):
         self.status_dir = conf['status_dir']
         self.myips = whataremyips('0.0.0.0')
         self.items_chunk = conf['items_chunk']
-        self.poll_timeout = conf.get('poll_timeout', 5)
+        self.poll_interval = conf.get('poll_interval', 5)
         self.logger = logging.getLogger('s3-sync')
 
     def get_broker(self, account, container, part, node):
@@ -88,8 +88,8 @@ class S3Sync(object):
             start = time.time()
             self.run_once()
             elapsed = time.time() - start
-            if elapsed < self.poll_timeout:
-                time.sleep(self.poll_timeout - elapsed)
+            if elapsed < self.poll_interval:
+                time.sleep(self.poll_interval - elapsed)
 
     def run_once(self):
         for sync_settings in self.conf['containers']:
