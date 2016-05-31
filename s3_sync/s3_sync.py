@@ -20,7 +20,7 @@ class S3Sync(object):
         self.container_ring = Ring(self.swift_dir, ring_name='container')
         self.retries = 3
 
-        self.scratch = conf['scratch']
+        self.status_dir = conf['status_dir']
         self.myips = whataremyips('0.0.0.0')
         self.items_chunk = conf['items_chunk']
         self.poll_timeout = conf.get('poll_timeout', 5)
@@ -66,9 +66,9 @@ class S3Sync(object):
             if not is_local_device(self.myips, None, node['ip'],
                                    node['port']):
                 continue
-            sync_meta = container.load_meta()
-            if sync_meta:
-                start = sync_meta['last_row']
+            status = container.load_status()
+            if status:
+                start = status['last_row']
             else:
                 start = 0
             broker = self.get_broker(container.account, container.container,
@@ -79,8 +79,8 @@ class S3Sync(object):
                 continue
             if items:
                 self.sync_items(container, items, nodes_count, index)
-                sync_meta['last_row'] = items[-1]['ROWID']
-                container.store_meta(sync_meta)
+                status['last_row'] = items[-1]['ROWID']
+                container.save_status(status)
             return
 
     def run_always(self):
@@ -93,4 +93,4 @@ class S3Sync(object):
 
     def run_once(self):
         for sync_settings in self.conf['containers']:
-            self.sync_container(SyncContainer(self.scratch, sync_settings))
+            self.sync_container(SyncContainer(self.status_dir, sync_settings))

@@ -10,7 +10,7 @@ class TestS3Sync(unittest.TestCase):
         mock_ring.return_value = self.mock_ring
         self.conf = {'devices': '/devices',
                      'items_chunk': 1000,
-                     'scratch': '/var/scratch'}
+                     'status_dir': '/var/scratch'}
         self.s3_sync = s3_sync.S3Sync(self.conf)
 
     def test_sync_items(self):

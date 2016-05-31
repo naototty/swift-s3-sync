@@ -27,7 +27,7 @@ class TestSyncContainer(unittest.TestCase):
                                              'container': 'container'})
 
     def test_load_non_existent_meta(self):
-        ret = self.sync_container.load_meta()
+        ret = self.sync_container.load_status()
         self.assertEqual({}, ret)
 
     @mock.patch('s3_sync.sync_container.open')
@@ -48,7 +48,7 @@ class TestSyncContainer(unittest.TestCase):
         mock_exists.return_value = True
         mock_open.return_value = MockMetaConf()
 
-        meta = self.sync_container.load_meta()
+        meta = self.sync_container.load_status()
         self.assertEqual(42, meta['last_row'])
 
         mock_exists.assert_called_with('%s/%s/%s' % (

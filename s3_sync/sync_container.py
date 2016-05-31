@@ -62,14 +62,14 @@ use = egg:swift#catch_errors
     PREFIX_LEN = 6
     PREFIX_SPACE = 16**PREFIX_LEN
 
-    def __init__(self, meta_dir, sync_settings):
+    def __init__(self, status_dir, sync_settings):
         self._settings = sync_settings
         self.account = sync_settings['account']
         self.container = sync_settings['container']
-        self._meta_dir = meta_dir
-        self._meta_file = os.path.join(self._meta_dir, self.account,
-                                       self.container)
-        self._meta_account_dir = os.path.join(self._meta_dir, self.account)
+        self._status_dir = status_dir
+        self._status_file = os.path.join(self._status_dir, self.account,
+                                         self.container)
+        self._status_account_dir = os.path.join(self._status_dir, self.account)
         self._init_s3()
         ic_config = ConfigString(self.INTERNAL_CLIENT_CONFIG)
         self.swift = InternalClient(ic_config, 'S3 sync', 3)
@@ -96,20 +96,20 @@ use = egg:swift#catch_errors
         self.s3_client.meta.events.unregister('before-call.s3.PutObject',
                                               conditionally_calculate_md5)
 
-    def load_meta(self):
-        if not os.path.exists(self._meta_file):
+    def load_status(self):
+        if not os.path.exists(self._status_file):
             return {}
-        with open(self._meta_file) as f:
+        with open(self._status_file) as f:
             try:
                 return json.load(f)
             except ValueError:
                 return {}
 
-    def store_meta(self, meta):
-        if not os.path.exists(self._meta_account_dir):
-            os.mkdir(self._meta_account_dir)
-        with open(self._meta_file, 'w') as f:
-            json.dump(meta, f)
+    def save_status(self, state):
+        if not os.path.exists(self._status_account_dir):
+            os.mkdir(self._status_account_dir)
+        with open(self._status_file, 'w') as f:
+            json.dump(state, f)
 
     def get_s3_name(self, key):
         concat_key = '%s/%s/%s' % (self.account, self.container, key)
