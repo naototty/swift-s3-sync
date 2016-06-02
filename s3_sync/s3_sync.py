@@ -13,6 +13,7 @@ from .sync_container import SyncContainer
 
 class S3Sync(object):
     def __init__(self, conf):
+        self.logger = logging.getLogger('s3-sync')
         self.conf = conf
         self.root = conf['devices']
         self.interval = 10
@@ -24,7 +25,7 @@ class S3Sync(object):
         self.myips = whataremyips('0.0.0.0')
         self.items_chunk = conf['items_chunk']
         self.poll_interval = conf.get('poll_interval', 5)
-        self.logger = logging.getLogger('s3-sync')
+        self.logger.debug('Created the S3Sync instance')
 
     def get_broker(self, account, container, part, node):
         db_hash = hash_path(account, container)
@@ -84,6 +85,7 @@ class S3Sync(object):
             return
 
     def run_always(self):
+        self.logger.debug('Entering the poll loop')
         while True:
             start = time.time()
             self.run_once()
