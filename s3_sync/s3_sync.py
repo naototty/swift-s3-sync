@@ -37,7 +37,8 @@ class S3Sync(object):
     def sync_row(self, sync_container, row):
         if row['deleted']:
             return sync_container.delete_object(row['name'])
-        return sync_container.upload_object(row['name'])
+        return sync_container.upload_object(row['name'],
+                                            row['storage_policy_index'])
 
     # TODO: use green threads here: need to understand whether it makes sense
     def sync_items(self, sync_container, rows, nodes_count, node_id):
@@ -59,7 +60,7 @@ class S3Sync(object):
     def get_items_since(self, broker, since_start):
         return broker.get_items_since(since_start, 10)
 
-    def container(self, container):
+    def sync_container(self, container):
         part, container_nodes = self.container_ring.get_nodes(
             container.account, container.container)
         nodes_count = len(container_nodes)
