@@ -1,5 +1,6 @@
 import logging
 import os.path
+import sys
 import time
 
 from swift.common.db import DatabaseConnectionError
@@ -95,5 +96,9 @@ class S3Sync(object):
                 time.sleep(self.poll_interval - elapsed)
 
     def run_once(self):
+        # Since we don't support reloading, the daemon should quit if there are
+        # no containers configured
+        if 'containers' not in self.conf or not self.conf['containers']:
+            sys.exit(0)
         for sync_settings in self.conf['containers']:
             self.sync_container(SyncContainer(self.status_dir, sync_settings))

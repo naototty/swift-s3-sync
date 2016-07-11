@@ -32,5 +32,30 @@ class TestS3Sync(unittest.TestCase):
                             for x in sync_calls]
                 expected += [mock.call(sync_container_mock, {'ROWID': x})
                              for x in verify_calls]
-                self.assertTrue(expected ==
-                                self.s3_sync.sync_row.call_args_list)
+                self.assertEqual(expected,
+                                 self.s3_sync.sync_row.call_args_list)
+
+    def test_exit_if_no_containers(self):
+        with self.assertRaises(SystemExit):
+            self.s3_sync.run_once()
+
+    @mock.patch('s3_sync.s3_sync.SyncContainer')
+    def test_processes_every_container(self, sync_container_mock):
+        self.s3_sync.sync_container = mock.Mock()
+        self.s3_sync.conf['containers'] = [
+            {'account': 'foo',
+             'container': 'foo',
+             'aws_bucket': 'bucket',
+             'aws_identity': 'id',
+             'aws_secret': 'secret'},
+            {'account': 'bar',
+             'container': 'bar',
+             'aws_bucket': 'other-bucket',
+             'aws_identity': 'something',
+             'aws_secret': 'else'}
+        ]
+
+        self.s3_sync.run_once()
+        expected_calls = [mock.call(self.conf['status_dir'], container)
+                          for container in self.s3_sync.conf['containers']]
+        self.assertEquals(expected_calls, sync_container_mock.call_args_list)
