@@ -113,7 +113,7 @@ use = egg:swift#catch_errors
 
     def get_s3_name(self, key):
         concat_key = '%s/%s/%s' % (self.account, self.container, key)
-        md5_hash = hashlib.md5(concat_key).hexdigest()
+        md5_hash = hashlib.md5('%s/%s' % (self.account, self.container)).hexdigest()
         # strip off 0x and L
         prefix = hex(long(md5_hash, 16) % self.PREFIX_SPACE)[2:-1]
         return '%s/%s' % (prefix, concat_key)

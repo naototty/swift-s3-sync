@@ -1,3 +1,4 @@
+import hashlib
 import mock
 from botocore.exceptions import ClientError
 from s3_sync import utils
@@ -163,3 +164,8 @@ class TestSyncContainer(unittest.TestCase):
             self.assertEqual(remainder, '/'.join((account, container, key)))
             self.assertTrue(len(prefix) and
                             len(prefix) <= SyncContainer.PREFIX_LEN)
+            # Check the prefix computation
+            md5_prefix = hashlib.md5('%s/%s' % (account, container))
+            expected_prefix = hex(long(md5_prefix.hexdigest(), 16) %
+                SyncContainer.PREFIX_SPACE)[2:-1]
+            self.assertEqual(expected_prefix, prefix)
