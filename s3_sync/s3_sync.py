@@ -2,6 +2,7 @@ import logging
 import os.path
 import sys
 import time
+import traceback
 
 from swift.common.db import DatabaseConnectionError
 from swift.common.ring import Ring
@@ -43,12 +44,21 @@ class S3Sync(object):
 
     # TODO: use green threads here: need to understand whether it makes sense
     def sync_items(self, sync_container, rows, nodes_count, node_id):
+        errors = False
         for row in rows:
             if (row['ROWID'] % nodes_count) != node_id:
                 continue
             if self.logger:
                 self.logger.debug('propagating %s' % row['ROWID'])
-            self.sync_row(sync_container, row)
+            try:
+                self.sync_row(sync_container, row)
+            except Exception as e:
+                self.logger.error('Failed to propagate row %s: %s' % (
+                    row['ROWID'], repr(e)))
+                errors = True
+        if errors:
+            raise RuntimeError('Failed to sync %s/%s' % (
+                sync_container.account, sync_container.container))
 
         for row in rows:
             # Validate that changes from all other rows have also been sync'd.
@@ -56,7 +66,15 @@ class S3Sync(object):
                 continue
             if self.logger:
                 self.logger.debug('verifiying %s' % row['ROWID'])
-            self.sync_row(sync_container, row)
+            try:
+                self.sync_row(sync_container, row)
+            except Exception as e:
+                self.logger.error('Failed to verify row %s: %s' %(
+                    row['ROWID'], repr(e)))
+                errors = True
+        if errors:
+            raise RuntimeError('Failed to verify %s/%s' % (
+                sync_container.account, sync_container.container))
 
     def get_items_since(self, broker, since_start):
         return broker.get_items_since(since_start, 10)
@@ -101,4 +119,13 @@ class S3Sync(object):
         if 'containers' not in self.conf or not self.conf['containers']:
             sys.exit(0)
         for sync_settings in self.conf['containers']:
-            self.sync_container(SyncContainer(self.status_dir, sync_settings))
+            try:
+                self.sync_container(SyncContainer(self.status_dir,
+                                                  sync_settings))
+            except Exception as e:
+                account = sync_settings.get('account', 'N/A')
+                container = sync_settings.get('container', 'N/A')
+                bucket = sync_settings.get('aws_bucket', 'N/A')
+                self.logger.error("Failed to sync %s/%s to %s: %s" %
+                    (account, container, bucket, repr(e)))
+                self.logger.error(traceback.format_exc(e))

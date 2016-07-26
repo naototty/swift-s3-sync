@@ -3,6 +3,7 @@ import json
 import logging
 import logging.handlers
 import time
+import traceback
 
 
 def setup_logger(console=False, log_file=None, level='INFO'):
@@ -69,8 +70,12 @@ def main():
     from .s3_sync import S3Sync
     logger = logging.getLogger('s3-sync')
     logger.debug('Starting S3Sync')
-    S3Sync(conf).run_always()
-
+    try:
+        S3Sync(conf).run_always()
+    except Exception as e:
+        logger.error("S3Sync failed: %s" % repr(e))
+        logger.error(traceback.format_exc(e))
+        exit(1)
 
 if __name__ == '__main__':
     main()
