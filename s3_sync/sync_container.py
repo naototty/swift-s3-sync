@@ -139,7 +139,8 @@ use = egg:swift#catch_errors
                                                       self.container,
                                                       swift_key,
                                                       headers=swift_req_hdrs)
-            if resp['ETag'] == metadata['etag']:
+            # S3 ETags are in quotes, whereas Swift ETags are not
+            if resp['ETag'] == '"%s"' % metadata['etag']:
                 if is_object_meta_synced(resp['Metadata'], metadata):
                     return
 

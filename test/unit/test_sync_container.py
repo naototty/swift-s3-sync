@@ -92,7 +92,7 @@ class TestSyncContainer(unittest.TestCase):
         self.mock_ic.get_object_metadata.return_value = swift_object_meta
         self.mock_boto3_client.head_object.return_value = {
             'Metadata': {'old': 'old'},
-            'ETag': etag
+            'ETag': '"%s"' % etag
         }
 
         self.sync_container.upload_object(key, storage_policy)
@@ -140,7 +140,7 @@ class TestSyncContainer(unittest.TestCase):
         self.mock_ic.get_object_metadata.return_value = swift_object_meta
         self.mock_boto3_client.head_object.return_value = {
             'Metadata': {'foo': 'foo'},
-            'ETag': etag
+            'ETag': '"%s"' % etag
         }
 
         self.sync_container.upload_object(key, storage_policy)
