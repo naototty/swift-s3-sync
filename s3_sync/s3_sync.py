@@ -87,21 +87,17 @@ class S3Sync(object):
             if not is_local_device(self.myips, None, node['ip'],
                                    node['port']):
                 continue
-            status = container.load_status()
-            if status:
-                start = status['last_row']
-            else:
-                start = 0
             broker = self.get_broker(container.account, container.container,
                                      part, node)
+            broker_info = broker.get_info()
+            start = container.load_status(broker_info['id'])
             try:
                 items = broker.get_items_since(start, self.items_chunk)
             except DatabaseConnectionError:
                 continue
             if items:
                 self.sync_items(container, items, nodes_count, index)
-                status['last_row'] = items[-1]['ROWID']
-                container.save_status(status)
+                container.save_status(items[-1]['ROWID'], broker_info['id'])
             return
 
     def run_always(self):
