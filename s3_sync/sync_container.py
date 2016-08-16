@@ -83,7 +83,8 @@ use = egg:swift#catch_errors
         boto_session = boto3.session.Session(
                 aws_access_key_id=self.aws_identity,
                 aws_secret_access_key=self.aws_secret)
-        config = boto3.session.Config()
+        config = boto3.session.Config(signature_version='s3v4',
+                                      s3={'aws_chunked': True})
         if self.aws_endpoint:
             if not self.aws_endpoint.endswith('amazonaws.com'):
                 # Required for supporting S3 clones
