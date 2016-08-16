@@ -4,6 +4,7 @@ from swift.common.utils import FileLikeIter
 
 
 SWIFT_USER_META_PREFIX = 'x-object-meta-'
+MANIFEST_HEADER = 'x-object-manifest'
 
 
 class FileWrapper(object):
@@ -50,6 +51,9 @@ def convert_to_s3_headers(swift_headers):
         if hdr.lower().startswith(SWIFT_USER_META_PREFIX):
             s3_header_name = hdr[len(SWIFT_USER_META_PREFIX):].lower()
             s3_headers[s3_header_name] = urllib.quote(swift_headers[hdr])
+        elif hdr.lower() == MANIFEST_HEADER:
+            s3_headers[MANIFEST_HEADER] = urllib.quote(swift_headers[hdr])
+
     return s3_headers
 
 
