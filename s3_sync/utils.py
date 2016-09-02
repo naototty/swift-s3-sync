@@ -14,6 +14,7 @@ class FileWrapper(object):
         self._container = container
         self._key = key
         self.swift_req_hdrs = headers
+        self._bytes_read = 0
         self.open_object_stream()
 
     def open_object_stream(self):
@@ -22,16 +23,27 @@ class FileWrapper(object):
             headers=self.swift_req_hdrs)
         if status != 200:
             raise RuntimeError('Failed to get the object')
+        self._swift_stream = body
         self._iter = FileLikeIter(body)
         self._s3_headers = convert_to_s3_headers(self._headers)
 
     def seek(self, pos, flag=0):
         if pos != 0:
             raise RuntimeError('Arbitrary seeks are not supported')
+        if self._bytes_read == 0:
+            return
+        self._swift_stream.close()
         self.open_object_stream()
 
     def read(self, size=-1):
-        return self._iter.read(size)
+        data = self._iter.read(size)
+        self._bytes_read += len(data)
+        # TODO: we do not need to read an extra byte after
+        # https://review.openstack.org/#/c/363199/ is released
+        if self._bytes_read == self.__len__():
+            self._iter.read(1)
+            self._swift_stream.close()
+        return data
 
     def __len__(self):
         if 'Content-Length' not in self._headers:
