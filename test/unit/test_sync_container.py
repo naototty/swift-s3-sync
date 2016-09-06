@@ -40,7 +40,6 @@ class TestSyncContainer(unittest.TestCase):
             if offset != 0:
                 raise RuntimeError
 
-
     @mock.patch('s3_sync.sync_container.boto3.session.Session')
     @mock.patch('s3_sync.sync_container.InternalClient')
     def setUp(self, mock_ic, mock_boto3):
@@ -83,7 +82,6 @@ class TestSyncContainer(unittest.TestCase):
     @mock.patch('s3_sync.sync_container.os.path.exists')
     def test_load_status_new_bucket(self, mock_exists, mock_open):
         db_id = 'db-id-test'
-        last_row = 42
         new_bucket = 'new-bucket'
         self.sync_container.aws_bucket = 'bucket'
         fake_status = {db_id: dict(last_row=42, aws_bucket=new_bucket)}
@@ -102,7 +100,6 @@ class TestSyncContainer(unittest.TestCase):
     @mock.patch('s3_sync.sync_container.os.path.exists')
     def test_load_status_new_db_id(self, mock_exists, mock_open):
         db_id = 'db-id-test'
-        last_row = 42
         self.sync_container.aws_bucket = 'bucket'
         fake_status = {db_id: dict(last_row=42, aws_bucket='bucket')}
 
@@ -164,8 +161,8 @@ class TestSyncContainer(unittest.TestCase):
                                           self.sync_container.account)),
                      mock.call('%s/%s/%s' % (self.scratch_space,
                                              self.sync_container.account,
-                                             self.sync_container.container))
-                    ], mock_exists.call_args_list)
+                                             self.sync_container.container))],
+                    mock_exists.call_args_list)
 
     @mock.patch('s3_sync.sync_container.open')
     @mock.patch('s3_sync.sync_container.os.path.exists')
@@ -196,8 +193,8 @@ class TestSyncContainer(unittest.TestCase):
                                   self.sync_container.account)),
              mock.call('%s/%s/%s' % (self.scratch_space,
                                      self.sync_container.account,
-                                     self.sync_container.container))
-            ], mock_exists.call_args_list)
+                                     self.sync_container.container))],
+            mock_exists.call_args_list)
 
     @mock.patch('s3_sync.sync_container.open')
     @mock.patch('s3_sync.sync_container.os.path.exists')
@@ -230,8 +227,9 @@ class TestSyncContainer(unittest.TestCase):
                                           self.sync_container.account)),
                      mock.call('%s/%s/%s' % (self.scratch_space,
                                              self.sync_container.account,
-                                             self.sync_container.container))
-                    ], mock_exists.call_args_list)
+                                             self.sync_container.container))],
+                    mock_exists.call_args_list)
+
     @mock.patch('s3_sync.sync_container.open')
     @mock.patch('s3_sync.sync_container.os.path.exists')
     def test_save_old_status(self, mock_exists, mock_open):
@@ -352,5 +350,5 @@ class TestSyncContainer(unittest.TestCase):
             # Check the prefix computation
             md5_prefix = hashlib.md5('%s/%s' % (account, container))
             expected_prefix = hex(long(md5_prefix.hexdigest(), 16) %
-                SyncContainer.PREFIX_SPACE)[2:-1]
+                                  SyncContainer.PREFIX_SPACE)[2:-1]
             self.assertEqual(expected_prefix, prefix)

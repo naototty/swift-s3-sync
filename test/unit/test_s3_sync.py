@@ -16,9 +16,9 @@ class TestS3Sync(unittest.TestCase):
     @staticmethod
     def _create_test_rows(count, prefix, policy_index):
         return [{'ROWID': x,
-                  'name': prefix + str(x),
-                  'storage_policy_index': policy_index,
-                  'deleted': False}
+                 'name': prefix + str(x),
+                 'storage_policy_index': policy_index,
+                 'deleted': False}
                 for x in range(0, count)]
 
     def test_sync_items(self):
@@ -41,8 +41,8 @@ class TestS3Sync(unittest.TestCase):
                             for x in sync_calls]
                 expected += [mock.call(name_prefix + str(x), policy_index)
                              for x in verify_calls]
-                self.assertEqual(expected,
-                                 sync_container_mock.upload_object.call_args_list)
+                self.assertEqual(
+                    expected, sync_container_mock.upload_object.call_args_list)
 
     def test_sync_items_errors(self):
         rows = 10
@@ -52,7 +52,8 @@ class TestS3Sync(unittest.TestCase):
 
         for node_id in (0, 1):
             sync_container_mock = mock.Mock()
-            sync_container_mock.upload_object.side_effect = RuntimeError('oops')
+            sync_container_mock.upload_object.side_effect = RuntimeError(
+                'oops')
 
             with self.assertRaises(RuntimeError):
                 self.s3_sync.sync_items(sync_container_mock, items, 2, node_id)
@@ -94,7 +95,7 @@ class TestS3Sync(unittest.TestCase):
             expected = [mock.call(name_prefix + str(row_id), policy_index)
                         for row_id in sync_calls]
             expected += [mock.call(name_prefix + str(row_id), policy_index)
-                             for row_id in verify_calls]
+                         for row_id in verify_calls]
             self.assertEqual(expected,
                              sync_container_mock.upload_object.call_args_list)
 
@@ -104,18 +105,17 @@ class TestS3Sync(unittest.TestCase):
 
     @mock.patch('s3_sync.s3_sync.traceback.format_exc')
     @mock.patch('s3_sync.sync_container.InternalClient')
-    def test_no_exception_on_failure(self, internal_client_mock, format_exc_mock):
+    def test_no_exception_on_failure(self, internal_client_mock,
+                                     format_exc_mock):
         self.s3_sync.containers = [
             {'account': 'foo',
              'container': 'bar',
              'aws_bucket': 'qux',
              'aws_identity': 'identity',
-             'aws_secret': 'credential'
-            },
+             'aws_secret': 'credential'},
             # missing parameters
             {'account': 'foo',
-             'aws_bucket': 'qux'
-            }
+             'aws_bucket': 'qux'}
         ]
 
         self.s3_sync.logger = mock.Mock()
