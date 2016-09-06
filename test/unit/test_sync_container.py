@@ -245,6 +245,7 @@ class TestSyncContainer(unittest.TestCase):
                              'X-Newest': True}
 
         wrapper = mock.Mock()
+        wrapper.__len__ = lambda s: 0
         wrapper.get_s3_headers.return_value = {}
         mock_file_wrapper.return_value = wrapper
         self.mock_boto3_client.head_object.side_effect = ClientError(
@@ -261,7 +262,8 @@ class TestSyncContainer(unittest.TestCase):
             Bucket=self.aws_bucket,
             Key=self.sync_container.get_s3_name(key),
             Body=wrapper,
-            Metadata={})
+            Metadata={},
+            ContentLength=0)
 
     def test_upload_changed_meta(self):
         key = 'key'
@@ -302,6 +304,7 @@ class TestSyncContainer(unittest.TestCase):
         wrapper = mock.Mock()
         wrapper.get_s3_headers.return_value = utils.convert_to_s3_headers(
             swift_object_meta)
+        wrapper.__len__ = lambda s: 42
         mock_file_wrapper.return_value = wrapper
 
         self.sync_container.upload_object(key, storage_policy)
@@ -310,7 +313,8 @@ class TestSyncContainer(unittest.TestCase):
             Bucket=self.aws_bucket,
             Key=self.sync_container.get_s3_name(key),
             Metadata={'new': 'new', 'old': 'updated'},
-            Body=wrapper)
+            Body=wrapper,
+            ContentLength=42)
 
     def test_upload_same_object(self):
         key = 'key'
