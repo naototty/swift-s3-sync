@@ -246,6 +246,6 @@ use = egg:swift#catch_errors
 
     def delete_object(self, swift_key):
         s3_key = self.get_s3_name(swift_key)
-        with self.boto_client.pool.get_client() as boto_client:
+        with self.boto_client_pool.get_client() as boto_client:
             s3_client = boto_client.client
             return s3_client.delete_object(Bucket=self.aws_bucket, Key=s3_key)

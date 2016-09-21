@@ -331,6 +331,14 @@ class TestSyncContainer(unittest.TestCase):
         self.mock_boto3_client.copy_object.assert_not_called()
         self.mock_boto3_client.put_object.assert_not_called()
 
+    def test_delete_object(self):
+        key = 'key'
+
+        self.sync_container.delete_object(key)
+        self.mock_boto3_client.delete_object.assert_called_with(
+            Bucket=self.aws_bucket,
+            Key=self.sync_container.get_s3_name(key))
+
     @mock.patch('s3_sync.sync_container.SyncContainer._init_s3')
     @mock.patch('s3_sync.sync_container.InternalClient')
     def test_s3_name(self, mock_ic, mock_init_s3):
