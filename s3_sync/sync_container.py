@@ -129,12 +129,14 @@ use = egg:swift#catch_errors
         aws_secret = settings['aws_secret']
         # assumes local swift-proxy
         aws_endpoint = settings.get('aws_endpoint', None)
-        s3_args = {'aws_chunked': True}
-        if aws_endpoint:
-            if not aws_endpoint.endswith('amazonaws.com'):
-                s3_args['addressing_style'] = 'path'
-        boto_config = boto3.session.Config(signature_version='s3v4',
-                                           s3=s3_args)
+        if not aws_endpoint or aws_endpoint.endswith('amazonaws.com'):
+            # We always use v4 signer with Amazon, as it will support all regions.
+            boto_config = boto3.session.Config(signature_version='s3v4',
+                                               s3={'aws_chunked': True})
+        else:
+            # For the other providers, we default to v2 signer, as a lot of them
+            # don't support v4 (e.g. Google)
+            boto_config = boto3.session.Config(s3={'addressing_style': 'path'})
         boto_session = boto3.session.Session(
             aws_access_key_id=aws_identity,
             aws_secret_access_key=aws_secret)

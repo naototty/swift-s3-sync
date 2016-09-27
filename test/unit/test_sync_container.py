@@ -360,3 +360,27 @@ class TestSyncContainer(unittest.TestCase):
             expected_prefix = hex(long(md5_prefix.hexdigest(), 16) %
                                   SyncContainer.PREFIX_SPACE)[2:-1]
             self.assertEqual(expected_prefix, prefix)
+
+    @mock.patch('s3_sync.sync_container.InternalClient')
+    @mock.patch('s3_sync.sync_container.boto3.session.Session')
+    def test_signature_version(self, session_mock, ic_mock):
+        config_class = 's3_sync.sync_container.boto3.session.Config'
+        with mock.patch(config_class) as conf_mock:
+            sync_container = SyncContainer(self.scratch_space,
+                                           {'aws_bucket': self.aws_bucket,
+                                            'aws_identity': 'identity',
+                                            'aws_secret': 'credential',
+                                            'account': 'account',
+                                            'container': 'container'})
+            conf_mock.assert_called_once_with(signature_version='s3v4',
+                                              s3={'aws_chunked': True})
+
+        with mock.patch(config_class) as conf_mock:
+            sync_container = SyncContainer(self.scratch_space,
+                                           {'aws_bucket': self.aws_bucket,
+                                            'aws_identity': 'identity',
+                                            'aws_secret': 'credential',
+                                            'account': 'account',
+                                            'container': 'container',
+                                            'aws_endpoint': 'http://test.com'})
+            conf_mock.assert_called_once_with(s3={'addressing_style': 'path'})
