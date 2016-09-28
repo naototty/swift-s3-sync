@@ -61,8 +61,9 @@ class S3Sync(object):
             try:
                 if row['deleted']:
                     sync_container.delete_object(row['name'])
-                sync_container.upload_object(row['name'],
-                                             row['storage_policy_index'])
+                else:
+                    sync_container.upload_object(row['name'],
+                                                 row['storage_policy_index'])
             except Exception as e:
                 self.error_queue.put((row, e))
             self.work_queue.task_done()

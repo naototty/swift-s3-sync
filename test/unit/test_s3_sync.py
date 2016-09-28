@@ -14,12 +14,13 @@ class TestS3Sync(unittest.TestCase):
         self.s3_sync = s3_sync.S3Sync(self.conf)
 
     @staticmethod
-    def _create_test_rows(count, prefix, policy_index):
+    def _create_test_rows(count, prefix, policy_index, deleted=False,
+                          start_id=0):
         return [{'ROWID': x,
                  'name': prefix + str(x),
                  'storage_policy_index': policy_index,
-                 'deleted': False}
-                for x in range(0, count)]
+                 'deleted': deleted}
+                for x in range(start_id, count + start_id)]
 
     def test_sync_items(self):
         total_rows = 20
@@ -98,6 +99,48 @@ class TestS3Sync(unittest.TestCase):
                          for row_id in verify_calls]
             self.assertEqual(expected,
                              sync_container_mock.upload_object.call_args_list)
+
+    def test_delete_or_upload(self):
+        rows = 10
+        name_prefix = 'foo'
+        policy_index = 1
+        items = self._create_test_rows(rows/2, name_prefix, policy_index)
+        deleted_items = self._create_test_rows(rows/2, name_prefix,
+                                               policy_index, deleted=True,
+                                               start_id=rows/2)
+        items += deleted_items
+
+        for node_id in (0, 1):
+            sync_container_mock = mock.Mock()
+            sync_container_mock.account = 'test account'
+            sync_container_mock.container = 'test container'
+
+            sync_container_mock.upload_object.return_value = None
+            sync_container_mock.delete_object.return_value = None
+
+            self.s3_sync.sync_items(sync_container_mock, items, 2, node_id)
+
+            sync_calls = filter(lambda x: x % 2 == node_id,
+                                range(0, rows/2))
+            delete_calls = filter(lambda x: x % 2 == node_id,
+                                  range(rows/2, rows))
+            verify_calls = filter(lambda x: x % 2 != node_id,
+                                  range(0, rows/2))
+            verify_delete_calls = filter(lambda x: x % 2 != node_id,
+                                         range(rows/2, rows))
+            expected = [mock.call(name_prefix + str(row_id), policy_index)
+                        for row_id in sync_calls]
+            expected += [mock.call(name_prefix + str(row_id), policy_index)
+                         for row_id in verify_calls]
+            self.assertEqual(expected,
+                             sync_container_mock.upload_object.call_args_list)
+
+            expected_delete = [mock.call(name_prefix + str(row_id))
+                               for row_id in delete_calls]
+            expected_delete += [mock.call(name_prefix + str(row_id))
+                                for row_id in verify_delete_calls]
+            self.assertEqual(expected_delete,
+                             sync_container_mock.delete_object.call_args_list)
 
     def test_exit_if_no_containers(self):
         with self.assertRaises(SystemExit):
