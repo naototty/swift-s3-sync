@@ -222,16 +222,19 @@ use = egg:swift#catch_errors
                 if is_object_meta_synced(resp['Metadata'], metadata):
                     return
 
-                # Update the headers
-                with self.boto_client_pool.get_client() as boto_client:
-                    s3_client = boto_client.client
-                    s3_client.copy_object(
-                        CopySource={'Bucket': self.aws_bucket, 'Key': s3_key},
-                        MetadataDirective='REPLACE',
-                        Metadata=convert_to_s3_headers(metadata),
-                        Bucket=self.aws_bucket,
-                        Key=s3_key)
-                    return
+                # If metadata changes for objects expired to Glacier, we
+                # have to re-upload them, unfortunately.
+                if 'StorageClass' not in resp or \
+                        resp['StorageClass'] != 'GLACIER':
+                    with self.boto_client_pool.get_client() as boto_client:
+                        s3_client = boto_client.client
+                        s3_client.copy_object(
+                            CopySource={'Bucket': self.aws_bucket, 'Key': s3_key},
+                            MetadataDirective='REPLACE',
+                            Metadata=convert_to_s3_headers(metadata),
+                            Bucket=self.aws_bucket,
+                            Key=s3_key)
+                        return
 
         wrapper_stream = FileWrapper(self.swift,
                                      self.account,

@@ -287,6 +287,42 @@ class TestSyncContainer(unittest.TestCase):
             Metadata={'new': 'new', 'old': 'updated'})
 
     @mock.patch('s3_sync.sync_container.FileWrapper')
+    def test_upload_changed_meta_glacier(self, mock_file_wrapper):
+        key = 'key'
+        storage_policy = 42
+        swift_req_headers = {'X-Backend-Storage-Policy-Index': storage_policy,
+                             'X-Newest': True}
+        etag = '1234'
+        swift_object_meta = {'x-object-meta-new': 'new',
+                             'x-object-meta-old': 'updated',
+                             'etag': etag}
+        self.mock_ic.get_object_metadata.return_value = swift_object_meta
+        self.mock_boto3_client.head_object.return_value = {
+            'Metadata': {'old': 'old'},
+            'ETag': '"%s"' % etag,
+            'StorageClass': 'GLACIER'
+        }
+
+        wrapper = mock.Mock()
+        wrapper.__len__ = lambda s: 0
+        wrapper.get_s3_headers.return_value = {'new': 'new', 'old': 'updated'}
+        mock_file_wrapper.return_value = wrapper
+
+        self.sync_container.upload_object(key, storage_policy)
+
+        mock_file_wrapper.assert_called_with(self.mock_ic,
+                                             self.sync_container.account,
+                                             self.sync_container.container,
+                                             key, swift_req_headers)
+
+        self.mock_boto3_client.put_object.assert_called_with(
+            Bucket=self.aws_bucket,
+            Key=self.sync_container.get_s3_name(key),
+            Metadata={'new': 'new', 'old': 'updated'},
+            Body=wrapper,
+            ContentLength=0)
+
+    @mock.patch('s3_sync.sync_container.FileWrapper')
     def test_upload_replace_object(self, mock_file_wrapper):
         key = 'key'
         storage_policy = 42
