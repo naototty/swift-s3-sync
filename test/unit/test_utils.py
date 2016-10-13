@@ -1,3 +1,5 @@
+# -*- coding: UTF-8 -*-
+
 from s3_sync import utils
 
 import unittest
@@ -31,7 +33,12 @@ class TestUtilsFunctions(unittest.TestCase):
                         'x-object-meta-foo': 'bar'},
                        {'foo': 'not foo',
                         'bar': 'bar'},
-                       False)]
+                       False),
+                      ({'x-object-meta-unicode': '👍',
+                        'x-object-meta-date': 'Wed, April 30 10:32:21 UTC'},
+                       {'unicode': '%F0%9F%91%8D',
+                        'date': 'Wed%2C%20April%2030%2010%3A32%3A21%20UTC'},
+                       True)]
         for swift_meta, s3_meta, expected in test_metas:
             self.assertEqual(expected, utils.is_object_meta_synced(s3_meta,
                                                                    swift_meta))

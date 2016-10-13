@@ -76,7 +76,7 @@ def is_object_meta_synced(s3_meta, swift_meta):
     if set(swift_keys) != set(s3_keys):
         return False
     for key in s3_keys:
-        swift_value = swift_meta[SWIFT_USER_META_PREFIX + key]
+        swift_value = urllib.quote(swift_meta[SWIFT_USER_META_PREFIX + key])
         if s3_meta[key] != swift_value:
             return False
     return True
