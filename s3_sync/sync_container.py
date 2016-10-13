@@ -4,6 +4,7 @@ from botocore.handlers import conditionally_calculate_md5
 import eventlet
 import hashlib
 import json
+import logging
 import os
 import os.path
 
@@ -122,6 +123,7 @@ use = egg:swift#catch_errors
         self._init_s3(sync_settings, max_conns)
         ic_config = ConfigString(self.INTERNAL_CLIENT_CONFIG)
         self.swift = InternalClient(ic_config, 'S3 sync', 3)
+        self.logger = logging.getLogger('s3-sync')
 
     def _init_s3(self, settings, max_conns):
         self.aws_bucket = settings['aws_bucket']
@@ -226,6 +228,8 @@ use = egg:swift#catch_errors
                 # have to re-upload them, unfortunately.
                 if 'StorageClass' not in resp or \
                         resp['StorageClass'] != 'GLACIER':
+                    self.logger.debug('Updating metadata for %s to %r' % (
+                        s3_key, convert_to_s3_headers(metadata)))
                     with self.boto_client_pool.get_client() as boto_client:
                         s3_client = boto_client.client
                         s3_client.copy_object(
@@ -241,6 +245,8 @@ use = egg:swift#catch_errors
                                      self.container,
                                      swift_key,
                                      swift_req_hdrs)
+        self.logger.debug('Uploading %s with meta: %r' % (
+            s3_key, wrapper_stream.get_s3_headers()))
         with self.boto_client_pool.get_client() as boto_client:
             s3_client = boto_client.client
             s3_client.put_object(Bucket=self.aws_bucket,
@@ -251,6 +257,7 @@ use = egg:swift#catch_errors
 
     def delete_object(self, swift_key):
         s3_key = self.get_s3_name(swift_key)
+        self.logger.debug('Deleting object %s' % s3_key)
         with self.boto_client_pool.get_client() as boto_client:
             s3_client = boto_client.client
             return s3_client.delete_object(Bucket=self.aws_bucket, Key=s3_key)
