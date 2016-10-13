@@ -132,12 +132,13 @@ use = egg:swift#catch_errors
         # assumes local swift-proxy
         aws_endpoint = settings.get('aws_endpoint', None)
         if not aws_endpoint or aws_endpoint.endswith('amazonaws.com'):
-            # We always use v4 signer with Amazon, as it will support all regions.
+            # We always use v4 signer with Amazon, as it will support all
+            # regions.
             boto_config = boto3.session.Config(signature_version='s3v4',
                                                s3={'aws_chunked': True})
         else:
-            # For the other providers, we default to v2 signer, as a lot of them
-            # don't support v4 (e.g. Google)
+            # For the other providers, we default to v2 signer, as a lot of
+            # them don't support v4 (e.g. Google)
             boto_config = boto3.session.Config(s3={'addressing_style': 'path'})
         boto_session = boto3.session.Session(
             aws_access_key_id=aws_identity,
@@ -233,7 +234,8 @@ use = egg:swift#catch_errors
                     with self.boto_client_pool.get_client() as boto_client:
                         s3_client = boto_client.client
                         s3_client.copy_object(
-                            CopySource={'Bucket': self.aws_bucket, 'Key': s3_key},
+                            CopySource={'Bucket': self.aws_bucket,
+                                        'Key': s3_key},
                             MetadataDirective='REPLACE',
                             Metadata=convert_to_s3_headers(metadata),
                             Bucket=self.aws_bucket,
