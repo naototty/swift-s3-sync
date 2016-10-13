@@ -76,7 +76,10 @@ def main():
     logger = logging.getLogger('s3-sync')
     logger.debug('Starting S3Sync')
     try:
-        S3Sync(conf).run_always()
+        if args.once:
+            S3Sync(conf).run_once()
+        else:
+            S3Sync(conf).run_always()
     except Exception as e:
         logger.error("S3Sync failed: %s" % repr(e))
         logger.error(traceback.format_exc(e))
