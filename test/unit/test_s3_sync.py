@@ -170,9 +170,9 @@ class TestS3Sync(unittest.TestCase):
 
         self.assertEqual(1, len(self.s3_sync.sync_container.call_args_list))
         expected_logger_calls = [
-            mock.call("Failed to sync foo/bar to qux: RuntimeError('oops',)"),
+            mock.call("Failed to sync foo/bar to qux"),
             mock.call('traceback'),
-            mock.call("Failed to sync foo/N/A to qux: KeyError('container',)"),
+            mock.call("Failed to sync foo/N/A to qux"),
             mock.call('traceback')
         ]
         self.assertEqual(expected_logger_calls,
@@ -199,3 +199,15 @@ class TestS3Sync(unittest.TestCase):
                                     self.s3_sync.workers)
                           for container in self.s3_sync.containers]
         self.assertEquals(expected_calls, sync_container_mock.call_args_list)
+
+    def test_worker_handles_all_exceptions(self):
+        sync_container_mock = mock.Mock()
+        sync_container_mock.account = 'test-account'
+        sync_container_mock.container = 'test-container'
+
+        sync_container_mock.upload_object.side_effect = BaseException('wut')
+
+        rows = [{'name': 'failed', 'deleted': False, 'ROWID': 1}]
+
+        with self.assertRaises(RuntimeError):
+            self.s3_sync.sync_items(sync_container_mock, rows, 1, 1)

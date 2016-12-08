@@ -52,21 +52,26 @@ class S3Sync(object):
         return ContainerBroker(db_path, account=account, container=container)
 
     def worker(self):
+        quit = False
         while 1:
-            work = self.work_queue.get()
-            if not work:
-                self.work_queue.task_done()
-                break
-            row, sync_container = work
+            work = None
             try:
+                work = self.work_queue.get()
+                if not work:
+                    quit = True
+                    break
+                row, sync_container = work
+
                 if row['deleted']:
                     sync_container.delete_object(row['name'])
                 else:
                     sync_container.upload_object(row['name'],
                                                  row['storage_policy_index'])
-            except Exception as e:
-                self.error_queue.put((row, e))
-            self.work_queue.task_done()
+            except:
+                self.error_queue.put((row, traceback.format_exc()))
+            finally:
+                if work or quit:
+                    self.work_queue.task_done()
 
     def check_errors(self, account, container):
         if self.error_queue.empty():
@@ -157,10 +162,11 @@ class S3Sync(object):
                     sync_settings['account'], sync_settings['container']))
                 self.sync_container(SyncContainer(self.status_dir,
                                                   sync_settings, self.workers))
-            except Exception as e:
+            except:
+                exc_type, exc_obj, exc_tb = sys.exc_info()
                 account = sync_settings.get('account', 'N/A')
                 container = sync_settings.get('container', 'N/A')
                 bucket = sync_settings.get('aws_bucket', 'N/A')
-                self.logger.error("Failed to sync %s/%s to %s: %s" % (
-                    account, container, bucket, repr(e)))
-                self.logger.error(traceback.format_exc(e))
+                self.logger.error("Failed to sync %s/%s to %s" % (
+                    account, container, bucket))
+                self.logger.error(traceback.format_exc())
