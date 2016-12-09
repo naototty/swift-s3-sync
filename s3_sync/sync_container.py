@@ -190,7 +190,8 @@ use = egg:swift#catch_errors
             return
 
     def get_s3_name(self, key):
-        concat_key = '%s/%s/%s' % (self.account, self.container, key)
+        concat_key = u'%s/%s/%s' % (self.account, self.container,
+                                    key.decode('utf-8'))
         md5_hash = hashlib.md5('%s/%s' % (
             self.account, self.container)).hexdigest()
         # strip off 0x and L

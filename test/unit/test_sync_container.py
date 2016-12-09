@@ -233,6 +233,7 @@ class TestSyncContainer(unittest.TestCase):
     @mock.patch('s3_sync.sync_container.open')
     @mock.patch('s3_sync.sync_container.os.path.exists')
     def test_save_old_status(self, mock_exists, mock_open):
+        # TODO: missing test
         pass
 
     @mock.patch('s3_sync.sync_container.FileWrapper')
@@ -259,6 +260,34 @@ class TestSyncContainer(unittest.TestCase):
         self.mock_boto3_client.put_object.assert_called_with(
             Bucket=self.aws_bucket,
             Key=self.sync_container.get_s3_name(key),
+            Body=wrapper,
+            Metadata={},
+            ContentLength=0)
+
+    @mock.patch('s3_sync.sync_container.FileWrapper')
+    def test_upload_unicode_object_name(self, mock_file_wrapper):
+        key = 'monkey-\xf0\x9f\x90\xb5'
+        storage_policy = 42
+        swift_req_headers = {'X-Backend-Storage-Policy-Index': storage_policy,
+                             'X-Newest': True}
+
+        wrapper = mock.Mock()
+        wrapper.__len__ = lambda s: 0
+        wrapper.get_s3_headers.return_value = {}
+        mock_file_wrapper.return_value = wrapper
+        self.mock_boto3_client.head_object.side_effect = ClientError(
+            {'Error': {'Code': 404}}, 'HEAD')
+
+        self.sync_container.upload_object(key, storage_policy)
+
+        mock_file_wrapper.assert_called_with(self.mock_ic,
+                                             self.sync_container.account,
+                                             self.sync_container.container,
+                                             key, swift_req_headers)
+
+        self.mock_boto3_client.put_object.assert_called_with(
+            Bucket=self.aws_bucket,
+            Key=u"356b9d/account/container/" + key.decode('utf-8'),
             Body=wrapper,
             Metadata={},
             ContentLength=0)

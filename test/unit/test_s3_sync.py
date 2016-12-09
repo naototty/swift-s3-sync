@@ -211,3 +211,16 @@ class TestS3Sync(unittest.TestCase):
 
         with self.assertRaises(RuntimeError):
             self.s3_sync.sync_items(sync_container_mock, rows, 1, 1)
+
+    def test_unicode_key_errors(self):
+        err = RuntimeError('junk')
+        key = 'monkey-\xf0\x9f\x90\xb5'
+        self.s3_sync.error_queue.put(({'name': key}, err))
+        self.s3_sync.logger = mock.Mock()
+
+        with self.assertRaises(RuntimeError):
+            self.s3_sync.check_errors('test-account', 'test-container')
+
+        self.s3_sync.logger.error.assert_called_once_with(
+            u'Failed to propagate object test-account/test-container/%s: %s' %
+            (key.decode('utf-8'), repr(err)))

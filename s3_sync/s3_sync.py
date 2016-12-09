@@ -79,8 +79,10 @@ class S3Sync(object):
         while not self.error_queue.empty():
             row, error = self.error_queue.get()
             if self.logger:
-                self.logger.error('Failed to propagate object %s/%s/%s: %s' % (
-                    account, container, row['name'], repr(error)))
+                self.logger.error(
+                    u'Failed to propagate object %s/%s/%s: %s' %
+                    (account, container, row['name'].decode('utf-8'),
+                     repr(error)))
         raise RuntimeError('Failed to sync %s/%s' % (account, container))
 
     def sync_items(self, sync_container, rows, nodes_count, node_id):
