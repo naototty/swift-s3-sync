@@ -64,7 +64,7 @@ class TestSyncContainer(unittest.TestCase):
         ret = self.sync_container.load_status('db-id')
         self.assertEqual(0, ret)
 
-    @mock.patch('s3_sync.sync_container.open')
+    @mock.patch('__builtin__.open')
     @mock.patch('s3_sync.sync_container.os.path.exists')
     def test_load_upgrade_status(self, mock_exists, mock_open):
         mock_exists.return_value = True
@@ -78,7 +78,7 @@ class TestSyncContainer(unittest.TestCase):
             self.scratch_space, self.sync_container.account,
             self.sync_container.container))
 
-    @mock.patch('s3_sync.sync_container.open')
+    @mock.patch('__builtin__.open')
     @mock.patch('s3_sync.sync_container.os.path.exists')
     def test_load_status_new_bucket(self, mock_exists, mock_open):
         db_id = 'db-id-test'
@@ -96,7 +96,7 @@ class TestSyncContainer(unittest.TestCase):
             self.scratch_space, self.sync_container.account,
             self.sync_container.container))
 
-    @mock.patch('s3_sync.sync_container.open')
+    @mock.patch('__builtin__.open')
     @mock.patch('s3_sync.sync_container.os.path.exists')
     def test_load_status_new_db_id(self, mock_exists, mock_open):
         db_id = 'db-id-test'
@@ -113,7 +113,7 @@ class TestSyncContainer(unittest.TestCase):
             self.scratch_space, self.sync_container.account,
             self.sync_container.container))
 
-    @mock.patch('s3_sync.sync_container.open')
+    @mock.patch('__builtin__.open')
     @mock.patch('s3_sync.sync_container.os.path.exists')
     def test_load_status(self, mock_exists, mock_open):
         db_entries = [{'id': 'db-id-1', 'aws_bucket': 'bucket', 'last_row': 5},
@@ -133,7 +133,7 @@ class TestSyncContainer(unittest.TestCase):
                 self.scratch_space, self.sync_container.account,
                 self.sync_container.container))
 
-    @mock.patch('s3_sync.sync_container.open')
+    @mock.patch('__builtin__.open')
     def test_save_status(self, mock_open):
         db_entries = {'db-id-1': {'aws_bucket': 'bucket', 'last_row': 5},
                       'db-id-2': {'aws_bucket': 'bucket', 'last_row': 7}}
@@ -164,7 +164,7 @@ class TestSyncContainer(unittest.TestCase):
                                              self.sync_container.container))],
                     mock_exists.call_args_list)
 
-    @mock.patch('s3_sync.sync_container.open')
+    @mock.patch('__builtin__.open')
     @mock.patch('s3_sync.sync_container.os.path.exists')
     def test_save_no_prior_status(self, mock_exists, mock_open):
         def existence_check(path):
@@ -196,7 +196,7 @@ class TestSyncContainer(unittest.TestCase):
                                      self.sync_container.container))],
             mock_exists.call_args_list)
 
-    @mock.patch('s3_sync.sync_container.open')
+    @mock.patch('__builtin__.open')
     @mock.patch('s3_sync.sync_container.os.path.exists')
     def test_save_status_new_bucket(self, mock_exists, mock_open):
         db_entries = {'db-id-1': {'aws_bucket': 'bucket', 'last_row': 5},
@@ -230,7 +230,7 @@ class TestSyncContainer(unittest.TestCase):
                                              self.sync_container.container))],
                     mock_exists.call_args_list)
 
-    @mock.patch('s3_sync.sync_container.open')
+    @mock.patch('__builtin__.open')
     @mock.patch('s3_sync.sync_container.os.path.exists')
     def test_save_old_status(self, mock_exists, mock_open):
         # TODO: missing test
