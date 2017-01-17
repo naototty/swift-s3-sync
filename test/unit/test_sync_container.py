@@ -41,7 +41,8 @@ class TestSyncContainer(unittest.TestCase):
                 raise RuntimeError
 
     @mock.patch('s3_sync.sync_container.boto3.session.Session')
-    @mock.patch('s3_sync.sync_container.InternalClient')
+    @mock.patch(
+        's3_sync.sync_container.container_crawler.base_sync.InternalClient')
     def setUp(self, mock_ic, mock_boto3):
         self.mock_ic = mock.Mock()
         self.mock_boto3_session = mock.Mock()
@@ -61,7 +62,7 @@ class TestSyncContainer(unittest.TestCase):
                                              'container': 'container'})
 
     def test_load_non_existent_meta(self):
-        ret = self.sync_container.load_status('db-id')
+        ret = self.sync_container.get_last_row('db-id')
         self.assertEqual(0, ret)
 
     @mock.patch('__builtin__.open')
@@ -71,7 +72,7 @@ class TestSyncContainer(unittest.TestCase):
         fake_status = dict(last_row=42)
         mock_open.return_value = self.MockMetaConf(fake_status)
 
-        status = self.sync_container.load_status('db-id')
+        status = self.sync_container.get_last_row('db-id')
         self.assertEqual(fake_status['last_row'], status)
 
         mock_exists.assert_called_with('%s/%s/%s' % (
@@ -80,7 +81,7 @@ class TestSyncContainer(unittest.TestCase):
 
     @mock.patch('__builtin__.open')
     @mock.patch('s3_sync.sync_container.os.path.exists')
-    def test_load_status_new_bucket(self, mock_exists, mock_open):
+    def test_last_row_new_bucket(self, mock_exists, mock_open):
         db_id = 'db-id-test'
         new_bucket = 'new-bucket'
         self.sync_container.aws_bucket = 'bucket'
@@ -89,7 +90,7 @@ class TestSyncContainer(unittest.TestCase):
         mock_exists.return_value = True
         mock_open.return_value = self.MockMetaConf(fake_status)
 
-        status = self.sync_container.load_status(db_id)
+        status = self.sync_container.get_last_row(db_id)
         self.assertEqual(0, status)
 
         mock_exists.assert_called_with('%s/%s/%s' % (
@@ -98,7 +99,7 @@ class TestSyncContainer(unittest.TestCase):
 
     @mock.patch('__builtin__.open')
     @mock.patch('s3_sync.sync_container.os.path.exists')
-    def test_load_status_new_db_id(self, mock_exists, mock_open):
+    def test_last_row_new_db_id(self, mock_exists, mock_open):
         db_id = 'db-id-test'
         self.sync_container.aws_bucket = 'bucket'
         fake_status = {db_id: dict(last_row=42, aws_bucket='bucket')}
@@ -106,7 +107,7 @@ class TestSyncContainer(unittest.TestCase):
         mock_exists.return_value = True
         mock_open.return_value = self.MockMetaConf(fake_status)
 
-        status = self.sync_container.load_status('other-db-id')
+        status = self.sync_container.get_last_row('other-db-id')
         self.assertEqual(0, status)
 
         mock_exists.assert_called_with('%s/%s/%s' % (
@@ -115,7 +116,7 @@ class TestSyncContainer(unittest.TestCase):
 
     @mock.patch('__builtin__.open')
     @mock.patch('s3_sync.sync_container.os.path.exists')
-    def test_load_status(self, mock_exists, mock_open):
+    def test_last_row(self, mock_exists, mock_open):
         db_entries = [{'id': 'db-id-1', 'aws_bucket': 'bucket', 'last_row': 5},
                       {'id': 'db-id-2', 'aws_bucket': 'bucket', 'last_row': 7}]
         for entry in db_entries:
@@ -126,7 +127,7 @@ class TestSyncContainer(unittest.TestCase):
             mock_exists.return_value = True
             mock_open.return_value = self.MockMetaConf(fake_status)
 
-            status = self.sync_container.load_status(entry['id'])
+            status = self.sync_container.get_last_row(entry['id'])
             self.assertEqual(entry['last_row'], status)
 
             mock_exists.assert_called_with('%s/%s/%s' % (
@@ -134,7 +135,7 @@ class TestSyncContainer(unittest.TestCase):
                 self.sync_container.container))
 
     @mock.patch('__builtin__.open')
-    def test_save_status(self, mock_open):
+    def test_save_last_row(self, mock_open):
         db_entries = {'db-id-1': {'aws_bucket': 'bucket', 'last_row': 5},
                       'db-id-2': {'aws_bucket': 'bucket', 'last_row': 7}}
         new_row = 42
@@ -147,7 +148,7 @@ class TestSyncContainer(unittest.TestCase):
                     as mock_exists:
                 mock_exists.return_value = True
 
-                self.sync_container.save_status(new_row, db_id)
+                self.sync_container.save_last_row(new_row, db_id)
                 file_entries = fake_conf_file.fake_status
                 for file_db_id, status in file_entries.items():
                     if file_db_id == db_id:
@@ -183,7 +184,7 @@ class TestSyncContainer(unittest.TestCase):
         mock_exists.side_effect = existence_check
         mock_open.return_value = fake_conf_file
 
-        self.sync_container.save_status(42, 'db-id')
+        self.sync_container.save_last_row(42, 'db-id')
         self.assertEqual(42, fake_conf_file.fake_status['db-id']['last_row'])
         self.assertEqual('bucket',
                          fake_conf_file.fake_status['db-id']['aws_bucket'])
@@ -198,7 +199,7 @@ class TestSyncContainer(unittest.TestCase):
 
     @mock.patch('__builtin__.open')
     @mock.patch('s3_sync.sync_container.os.path.exists')
-    def test_save_status_new_bucket(self, mock_exists, mock_open):
+    def test_save_last_row_new_bucket(self, mock_exists, mock_open):
         db_entries = {'db-id-1': {'aws_bucket': 'bucket', 'last_row': 5},
                       'db-id-2': {'aws_bucket': 'old-bucket', 'last_row': 7}}
         new_row = 42
@@ -210,7 +211,7 @@ class TestSyncContainer(unittest.TestCase):
             with mock.patch('s3_sync.sync_container.os.path.exists')\
                     as mock_exists:
                 mock_exists.return_value = True
-                self.sync_container.save_status(new_row, db_id)
+                self.sync_container.save_last_row(new_row, db_id)
                 file_entries = fake_conf_file.fake_status
                 for file_db_id, status in file_entries.items():
                     if file_db_id == db_id:
@@ -405,7 +406,8 @@ class TestSyncContainer(unittest.TestCase):
             Key=self.sync_container.get_s3_name(key))
 
     @mock.patch('s3_sync.sync_container.SyncContainer._init_s3')
-    @mock.patch('s3_sync.sync_container.InternalClient')
+    @mock.patch(
+        's3_sync.sync_container.container_crawler.base_sync.InternalClient')
     def test_s3_name(self, mock_ic, mock_init_s3):
         test_data = [('AUTH_test', 'container', 'key'),
                      ('swift', 'stuff', 'my/key')]
@@ -426,7 +428,8 @@ class TestSyncContainer(unittest.TestCase):
                                   SyncContainer.PREFIX_SPACE)[2:-1]
             self.assertEqual(expected_prefix, prefix)
 
-    @mock.patch('s3_sync.sync_container.InternalClient')
+    @mock.patch(
+        's3_sync.sync_container.container_crawler.base_sync.InternalClient')
     @mock.patch('s3_sync.sync_container.boto3.session.Session')
     def test_signature_version(self, session_mock, ic_mock):
         config_class = 's3_sync.sync_container.boto3.session.Config'

@@ -8,58 +8,12 @@ import logging
 import os
 import os.path
 
-from swift.common.internal_client import InternalClient
-from swift.common.wsgi import ConfigString
+import container_crawler.base_sync
 from .utils import (convert_to_s3_headers, FileWrapper,
                     is_object_meta_synced)
 
 
-class SyncContainer(object):
-    INTERNAL_CLIENT_CONFIG = """
-[DEFAULT]
-# swift_dir = /etc/swift
-# user = swift
-# You can specify default log routing here if you want:
-# log_name = swift
-# log_facility = LOG_LOCAL0
-# log_level = INFO
-# log_address = /dev/log
-#
-# comma separated list of functions to call to setup custom log handlers.
-# functions get passed: conf, name, log_to_console, log_route, fmt, logger,
-# adapted_logger
-# log_custom_handlers =
-#
-# If set, log_udp_host will override log_address
-# log_udp_host =
-# log_udp_port = 514
-#
-# You can enable StatsD logging here:
-# log_statsd_host =
-# log_statsd_port = 8125
-# log_statsd_default_sample_rate = 1.0
-# log_statsd_sample_rate_factor = 1.0
-# log_statsd_metric_prefix =
-
-[pipeline:main]
-pipeline = catch_errors proxy-logging cache proxy-server
-
-[app:proxy-server]
-use = egg:swift#proxy
-# See proxy-server.conf-sample for options
-
-[filter:cache]
-use = egg:swift#memcache
-# See proxy-server.conf-sample for options
-
-[filter:proxy-logging]
-use = egg:swift#proxy_logging
-
-[filter:catch_errors]
-use = egg:swift#catch_errors
-# See proxy-server.conf-sample for options
-""".lstrip()
-
+class SyncContainer(container_crawler.base_sync.BaseSync):
     # S3 prefix space: 6 16 digit characters
     PREFIX_LEN = 6
     PREFIX_SPACE = 16**PREFIX_LEN
@@ -114,6 +68,7 @@ use = egg:swift#catch_errors
                 raise RuntimeError('Failed to get a client!')
 
     def __init__(self, status_dir, sync_settings, max_conns=10):
+        super(SyncContainer, self).__init__(status_dir, sync_settings)
         self.account = sync_settings['account']
         self.container = sync_settings['container']
         self._status_dir = status_dir
@@ -121,8 +76,6 @@ use = egg:swift#catch_errors
                                          self.container)
         self._status_account_dir = os.path.join(self._status_dir, self.account)
         self._init_s3(sync_settings, max_conns)
-        ic_config = ConfigString(self.INTERNAL_CLIENT_CONFIG)
-        self.swift = InternalClient(ic_config, 'S3 sync', 3)
         self.logger = logging.getLogger('s3-sync')
 
     def _init_s3(self, settings, max_conns):
@@ -146,7 +99,7 @@ use = egg:swift#catch_errors
         self.boto_client_pool = self.BotoClientPool(
             boto_session, boto_config, aws_endpoint, max_conns)
 
-    def load_status(self, db_id):
+    def get_last_row(self, db_id):
         if not os.path.exists(self._status_file):
             return 0
         with open(self._status_file) as f:
@@ -165,7 +118,7 @@ use = egg:swift#catch_errors
             except ValueError:
                 return 0
 
-    def save_status(self, row, db_id):
+    def save_last_row(self, row, db_id):
         if not os.path.exists(self._status_account_dir):
             os.mkdir(self._status_account_dir)
         if not os.path.exists(self._status_file):
@@ -187,7 +140,6 @@ use = egg:swift#catch_errors
             f.seek(0)
             json.dump(status, f)
             f.truncate()
-            return
 
     def get_s3_name(self, key):
         concat_key = u'%s/%s/%s' % (self.account, self.container,
@@ -197,6 +149,12 @@ use = egg:swift#catch_errors
         # strip off 0x and L
         prefix = hex(long(md5_hash, 16) % self.PREFIX_SPACE)[2:-1]
         return '%s/%s' % (prefix, concat_key)
+
+    def handle(self, row):
+        if row['deleted']:
+            self.delete_object(row['name'])
+        else:
+            self.upload_object(row['name'], row['storage_policy_index'])
 
     def upload_object(self, swift_key, storage_policy_index):
         s3_key = self.get_s3_name(swift_key)
@@ -217,10 +175,9 @@ use = egg:swift#catch_errors
             'X-Newest': True
         }
         if not missing:
-            metadata = self.swift.get_object_metadata(self.account,
-                                                      self.container,
-                                                      swift_key,
-                                                      headers=swift_req_hdrs)
+            metadata = self._swift_client.get_object_metadata(
+                self.account, self.container, swift_key,
+                headers=swift_req_hdrs)
             # S3 ETags are in quotes, whereas Swift ETags are not
             if resp['ETag'] == '"%s"' % metadata['etag']:
                 if is_object_meta_synced(resp['Metadata'], metadata):
@@ -243,7 +200,7 @@ use = egg:swift#catch_errors
                             Key=s3_key)
                         return
 
-        wrapper_stream = FileWrapper(self.swift,
+        wrapper_stream = FileWrapper(self._swift_client,
                                      self.account,
                                      self.container,
                                      swift_key,
@@ -263,4 +220,4 @@ use = egg:swift#catch_errors
         self.logger.debug('Deleting object %s' % s3_key)
         with self.boto_client_pool.get_client() as boto_client:
             s3_client = boto_client.client
-            return s3_client.delete_object(Bucket=self.aws_bucket, Key=s3_key)
+            s3_client.delete_object(Bucket=self.aws_bucket, Key=s3_key)

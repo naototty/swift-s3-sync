@@ -6,6 +6,8 @@ import os
 import time
 import traceback
 
+from container_crawler import ContainerCrawler
+
 
 def setup_logger(console=False, log_file=None, level='INFO'):
     logger = logging.getLogger('s3-sync')
@@ -72,14 +74,15 @@ def main():
 
     # Swift may not be loaded when we start. Spin, waiting for it to load
     load_swift(args.once)
-    from .s3_sync import S3Sync
+    from .s3_sync import SyncContainer
     logger = logging.getLogger('s3-sync')
     logger.debug('Starting S3Sync')
     try:
+        crawler = ContainerCrawler(conf, SyncContainer, logger)
         if args.once:
-            S3Sync(conf).run_once()
+            crawler.run_once()
         else:
-            S3Sync(conf).run_always()
+            crawler.run_always()
     except Exception as e:
         logger.error("S3Sync failed: %s" % repr(e))
         logger.error(traceback.format_exc(e))
