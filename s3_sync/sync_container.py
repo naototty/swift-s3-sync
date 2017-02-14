@@ -158,15 +158,14 @@ class SyncContainer(container_crawler.base_sync.BaseSync):
 
     def upload_object(self, swift_key, storage_policy_index):
         s3_key = self.get_s3_name(swift_key)
-        missing = False
         try:
             with self.boto_client_pool.get_client() as boto_client:
                 s3_client = boto_client.client
-                resp = s3_client.head_object(Bucket=self.aws_bucket,
-                                             Key=s3_key)
+                s3_meta = s3_client.head_object(Bucket=self.aws_bucket,
+                                                Key=s3_key)
         except botocore.exceptions.ClientError as e:
             if int(e.response['Error']['Code']) == 404:
-                missing = True
+                s3_meta = None
             else:
                 raise e
         # TODO:  Handle large objects. Should we delete segments in S3?
@@ -174,22 +173,22 @@ class SyncContainer(container_crawler.base_sync.BaseSync):
             'X-Backend-Storage-Policy-Index': storage_policy_index,
             'X-Newest': True
         }
-        if not missing:
+        if s3_meta:
             metadata = self._swift_client.get_object_metadata(
                 self.account, self.container, swift_key,
                 headers=swift_req_hdrs)
             # S3 ETags are in quotes, whereas Swift ETags are not
-            if resp['ETag'] == '"%s"' % metadata['etag']:
-                if is_object_meta_synced(resp['Metadata'], metadata):
+            if s3_meta['ETag'] == '"%s"' % metadata['etag']:
+                if is_object_meta_synced(s3_meta['Metadata'], metadata):
                     return
 
                 # If metadata changes for objects expired to Glacier, we
                 # have to re-upload them, unfortunately.
-                if 'StorageClass' not in resp or \
-                        resp['StorageClass'] != 'GLACIER':
+                if 'StorageClass' not in s3_meta or \
+                        s3_meta['StorageClass'] != 'GLACIER':
                     self.logger.debug('Updating metadata for %s to %r' % (
                         s3_key, convert_to_s3_headers(metadata)))
-                    self.update_metadata(metadata, resp, s3_key)
+                    self.update_metadata(metadata, s3_meta, s3_key)
                     return
 
         wrapper_stream = FileWrapper(self._swift_client,
