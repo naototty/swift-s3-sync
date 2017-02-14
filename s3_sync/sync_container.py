@@ -173,23 +173,16 @@ class SyncContainer(container_crawler.base_sync.BaseSync):
             'X-Backend-Storage-Policy-Index': storage_policy_index,
             'X-Newest': True
         }
-        if s3_meta:
-            metadata = self._swift_client.get_object_metadata(
-                self.account, self.container, swift_key,
-                headers=swift_req_hdrs)
-            # S3 ETags are in quotes, whereas Swift ETags are not
-            if s3_meta['ETag'] == '"%s"' % metadata['etag']:
-                if is_object_meta_synced(s3_meta['Metadata'], metadata):
-                    return
 
-                # If metadata changes for objects expired to Glacier, we
-                # have to re-upload them, unfortunately.
-                if 'StorageClass' not in s3_meta or \
-                        s3_meta['StorageClass'] != 'GLACIER':
-                    self.logger.debug('Updating metadata for %s to %r' % (
-                        s3_key, convert_to_s3_headers(metadata)))
-                    self.update_metadata(metadata, s3_meta, s3_key)
-                    return
+        metadata = self._swift_client.get_object_metadata(
+            self.account, self.container, swift_key, headers=swift_req_hdrs)
+
+        if s3_meta and self.check_etag(metadata['etag'], s3_meta['ETag']):
+            if is_object_meta_synced(s3_meta['Metadata'], metadata):
+                return
+            elif not self.in_glacier(s3_meta):
+                self.update_metadata(metadata, s3_meta, s3_key)
+                return
 
         wrapper_stream = FileWrapper(self._swift_client,
                                      self.account,
@@ -226,3 +219,14 @@ class SyncContainer(container_crawler.base_sync.BaseSync):
                     Metadata=convert_to_s3_headers(swift_meta),
                     Bucket=self.aws_bucket,
                     Key=s3_key)
+
+    @staticmethod
+    def check_etag(swift_etag, s3_etag):
+        # S3 ETags are enclosed in ""
+        return s3_etag == '"%s"' % swift_etag
+
+    @staticmethod
+    def in_glacier(s3_meta):
+        if 'StorageClass' in s3_meta and s3_meta['StorageClass'] == 'GLACIER':
+            return True
+        return False
