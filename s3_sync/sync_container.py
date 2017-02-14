@@ -189,16 +189,8 @@ class SyncContainer(container_crawler.base_sync.BaseSync):
                         resp['StorageClass'] != 'GLACIER':
                     self.logger.debug('Updating metadata for %s to %r' % (
                         s3_key, convert_to_s3_headers(metadata)))
-                    with self.boto_client_pool.get_client() as boto_client:
-                        s3_client = boto_client.client
-                        s3_client.copy_object(
-                            CopySource={'Bucket': self.aws_bucket,
-                                        'Key': s3_key},
-                            MetadataDirective='REPLACE',
-                            Metadata=convert_to_s3_headers(metadata),
-                            Bucket=self.aws_bucket,
-                            Key=s3_key)
-                        return
+                    self.update_metadata(metadata, resp, s3_key)
+                    return
 
         wrapper_stream = FileWrapper(self._swift_client,
                                      self.account,
@@ -221,3 +213,17 @@ class SyncContainer(container_crawler.base_sync.BaseSync):
         with self.boto_client_pool.get_client() as boto_client:
             s3_client = boto_client.client
             s3_client.delete_object(Bucket=self.aws_bucket, Key=s3_key)
+
+    def update_metadata(self, swift_meta, s3_meta, s3_key):
+        self.logger.debug('Updating metadata for %s to %r' % (
+            s3_key, convert_to_s3_headers(swift_meta)))
+        with self.boto_client_pool.get_client() as boto_client:
+            s3_client = boto_client.client
+            if not self.check_slo(swift_meta):
+                s3_client.copy_object(
+                    CopySource={'Bucket': self.aws_bucket,
+                                'Key': s3_key},
+                    MetadataDirective='REPLACE',
+                    Metadata=convert_to_s3_headers(swift_meta),
+                    Bucket=self.aws_bucket,
+                    Key=s3_key)
