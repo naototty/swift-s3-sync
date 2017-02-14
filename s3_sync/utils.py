@@ -1,3 +1,4 @@
+import hashlib
 import urllib
 
 from swift.common.utils import FileLikeIter
@@ -70,8 +71,9 @@ def convert_to_s3_headers(swift_headers):
 
 
 def is_object_meta_synced(s3_meta, swift_meta):
-    swift_keys = set([key[len(SWIFT_USER_META_PREFIX):] for key in swift_meta
-                      if key.startswith(SWIFT_USER_META_PREFIX)])
+    swift_keys = set([key.lower()[len(SWIFT_USER_META_PREFIX):]
+                      for key in swift_meta
+                      if key.lower().startswith(SWIFT_USER_META_PREFIX)])
     s3_keys = set([key.lower() for key in s3_meta.keys()])
     if set(swift_keys) != set(s3_keys):
         return False
@@ -80,3 +82,10 @@ def is_object_meta_synced(s3_meta, swift_meta):
         if s3_meta[key] != swift_value:
             return False
     return True
+
+
+def get_slo_etag(manifest):
+    etags = [segment['hash'].decode('hex') for segment in manifest]
+    md5_hash = hashlib.md5()
+    md5_hash.update(''.join(etags))
+    return md5_hash.hexdigest() + '-%d' % len(manifest)

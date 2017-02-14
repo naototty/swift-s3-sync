@@ -7,10 +7,12 @@ import json
 import logging
 import os
 import os.path
+import traceback
 
 import container_crawler.base_sync
+from swift.common.utils import FileLikeIter
 from .utils import (convert_to_s3_headers, FileWrapper,
-                    is_object_meta_synced)
+                    is_object_meta_synced, get_slo_etag)
 
 
 class SyncContainer(container_crawler.base_sync.BaseSync):
@@ -56,6 +58,8 @@ class SyncContainer(container_crawler.base_sync.BaseSync):
             # Remove the Content-MD5 computation as we will supply the MD5
             # header ourselves
             s3_client.meta.events.unregister('before-call.s3.PutObject',
+                                             conditionally_calculate_md5)
+            s3_client.meta.events.unregister('before-call.s3.UploadPart',
                                              conditionally_calculate_md5)
             return s3_client
 
@@ -177,11 +181,16 @@ class SyncContainer(container_crawler.base_sync.BaseSync):
         metadata = self._swift_client.get_object_metadata(
             self.account, self.container, swift_key, headers=swift_req_hdrs)
 
+        self.logger.debug("Metadata: %s" % str(metadata))
+        if self.check_slo(metadata):
+            self.upload_slo(swift_key, storage_policy_index, s3_meta)
+            return
+
         if s3_meta and self.check_etag(metadata['etag'], s3_meta['ETag']):
             if is_object_meta_synced(s3_meta['Metadata'], metadata):
                 return
             elif not self.in_glacier(s3_meta):
-                self.update_metadata(metadata, s3_meta, s3_key)
+                self.update_metadata(metadata, s3_key)
                 return
 
         wrapper_stream = FileWrapper(self._swift_client,
@@ -199,6 +208,89 @@ class SyncContainer(container_crawler.base_sync.BaseSync):
                                  Metadata=wrapper_stream.get_s3_headers(),
                                  ContentLength=len(wrapper_stream))
 
+    def upload_slo(self, swift_key, storage_policy_index, s3_meta):
+        # Converts an SLO into a multipart upload. We use the segments as
+        # is, for the part sizes.
+        # NOTE: If the SLO segment is < 5MB and is not the last segment, the
+        # UploadPart call will fail. We need to stitch segments together in
+        # that case.
+        # TODO: support DLOs.
+        swift_req_hdrs = {
+            'X-Backend-Storage-Policy-Index': storage_policy_index,
+            'X-Newest': True
+        }
+        status, headers, body = self._swift_client.get_object(
+            self.account, self.container, swift_key, headers=swift_req_hdrs)
+        if status != 200:
+            body.close()
+            raise RuntimeError('Failed to get the manifest')
+        manifest = json.load(FileLikeIter(body))
+        self.logger.debug("JSON manifest: %s" % str(manifest))
+        # TODO: take range into account
+        if len(manifest) > 10000:
+            self.logger.error('Cannot upload a manifest with more than 10000'
+                              'segments: %s/%s/%s' % (self.account,
+                                                      self.container,
+                                                      swift_key))
+            body.close()
+            return
+
+        expected_etag = get_slo_etag(manifest)
+
+        s3_key = self.get_s3_name(swift_key)
+        if s3_meta and self.check_etag(expected_etag, s3_meta['ETag']):
+            if is_object_meta_synced(s3_meta['Metadata'], headers):
+                return
+            elif not self.in_glacier(s3_meta):
+                self.update_slo_metadata(headers, manifest, s3_key,
+                                         swift_req_hdrs)
+                return
+
+        self._upload_slo(manifest, headers, s3_key, swift_req_hdrs)
+
+    def _upload_slo(self, manifest, object_meta, s3_key, req_headers):
+        with self.boto_client_pool.get_client() as boto_client:
+            s3_client = boto_client.client
+            multipart_resp = s3_client.create_multipart_upload(
+                Bucket=self.aws_bucket,
+                Key=s3_key,
+                Metadata=convert_to_s3_headers(object_meta))
+
+        # TODO: parallelize the upload of the parts. This can either be
+        # greenthreads here, returning work to the caller (need to invent a new
+        # interface), or some other way.
+        for segment_number, segment in enumerate(manifest):
+            container, obj = segment['name'].split('/', 2)[1:]
+            wrapper = FileWrapper(self.swift, self.account, container, obj,
+                                  req_headers)
+            with self.boto_client_pool.get_client() as boto_client:
+                s3_client = boto_client.client
+                resp = s3_client.upload_part(
+                    Bucket=self.aws_bucket,
+                    Body=wrapper,
+                    Key=s3_key,
+                    ContentLength=len(wrapper),
+                    UploadId=multipart_resp['UploadId'],
+                    PartNumber=segment_number + 1)
+                if not self.check_etag(segment['hash'], resp['ETag']):
+                    # TODO: retry uploading the part
+                    raise RuntimeError('Part %d ETag mismatch (%s): %s %s' % (
+                                       segment_number + 1,
+                                       self.account + segment['name'],
+                                       segment['hash'], resp['ETag']))
+        with self.boto_client_pool.get_client() as boto_client:
+            s3_client = boto_client.client
+            # TODO: Validate the response ETag
+            s3_client.complete_multipart_upload(
+                Bucket=self.aws_bucket,
+                Key=s3_key,
+                MultipartUpload={'Parts': [
+                    {'PartNumber': number + 1,
+                     'ETag': segment['hash']}
+                    for number, segment in enumerate(manifest)]
+                },
+                UploadId=multipart_resp['UploadId'])
+
     def delete_object(self, swift_key):
         s3_key = self.get_s3_name(swift_key)
         self.logger.debug('Deleting object %s' % s3_key)
@@ -206,7 +298,53 @@ class SyncContainer(container_crawler.base_sync.BaseSync):
             s3_client = boto_client.client
             s3_client.delete_object(Bucket=self.aws_bucket, Key=s3_key)
 
-    def update_metadata(self, swift_meta, s3_meta, s3_key):
+    def update_slo_metadata(self, swift_meta, manifest, s3_key, req_headers):
+        # For large objects, we should use the multipart copy, which means
+        # creating a new multipart upload, with copy-parts
+        # NOTE: if we ever stich MPU objects, we need to replicate the
+        # stitching calculation to get the offset correctly.
+        with self.boto_client_pool.get_client() as boto_client:
+            s3_client = boto_client.client
+            multipart_resp = s3_client.create_multipart_upload(
+                Bucket=self.aws_bucket,
+                Key=s3_key,
+                Metadata=convert_to_s3_headers(swift_meta))
+
+            # The original manifest must match the MPU parts to ensure that
+            # ETags match
+            offset = 0
+            for part_number, segment in enumerate(manifest):
+                container, obj = segment['name'].split('/', 2)[1:]
+                segment_meta = self._swift_client.get_object_metadata(
+                    self.account, container, obj, req_headers)
+                length = int(segment_meta['content-length'])
+                resp = s3_client.upload_part_copy(
+                    Bucket=self.aws_bucket,
+                    CopySource={'Bucket': self.aws_bucket, 'Key': s3_key},
+                    CopySourceRange='bytes=%d-%d' % (offset,
+                                                     offset + length - 1),
+                    Key=s3_key,
+                    PartNumber=part_number + 1,
+                    UploadId=multipart_resp['UploadId'])
+                s3_etag = resp['CopyPartResult']['ETag']
+                if not self.check_etag(segment['hash'], s3_etag):
+                    raise RuntimeError('Part %d ETag mismatch (%s): %s %s' % (
+                                       part_number + 1,
+                                       self.account + segment['name'],
+                                       segment['hash'], resp['ETag']))
+                offset += length
+
+            s3_client.complete_multipart_upload(
+                Bucket=self.aws_bucket,
+                Key=s3_key,
+                MultipartUpload={'Parts': [
+                    {'PartNumber': number + 1,
+                     'ETag': segment['hash']}
+                    for number, segment in enumerate(manifest)]
+                },
+                UploadId=multipart_resp['UploadId'])
+
+    def update_metadata(self, swift_meta, s3_key):
         self.logger.debug('Updating metadata for %s to %r' % (
             s3_key, convert_to_s3_headers(swift_meta)))
         with self.boto_client_pool.get_client() as boto_client:
@@ -230,3 +368,9 @@ class SyncContainer(container_crawler.base_sync.BaseSync):
         if 'StorageClass' in s3_meta and s3_meta['StorageClass'] == 'GLACIER':
             return True
         return False
+
+    @staticmethod
+    def check_slo(swift_meta):
+        if 'x-static-large-object' not in swift_meta:
+            return False
+        return swift_meta['x-static-large-object'] == 'True'

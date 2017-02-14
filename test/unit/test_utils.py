@@ -1,7 +1,7 @@
 # -*- coding: UTF-8 -*-
 
+from utils import FakeStream
 from s3_sync import utils
-
 import unittest
 
 
@@ -43,45 +43,22 @@ class TestUtilsFunctions(unittest.TestCase):
             self.assertEqual(expected, utils.is_object_meta_synced(s3_meta,
                                                                    swift_meta))
 
+    def test_get_slo_etag(self):
+        sample_manifest = [{'hash': 'abcdef'}, {'hash': 'fedcba'}]
+        # We expect the md5 sum of the concatenated strings (converted to hex
+        # bytes) followed by the number of parts (segments)
+        expected_tag = 'ce7989f0e2f1f3e4fdd2a01dda0844ae-2'
+        self.assertEqual(expected_tag, utils.get_slo_etag(sample_manifest))
+
 
 class TestFileWrapper(unittest.TestCase):
-    class FakeStream(object):
-        def __init__(self, size=1024):
-            self.size = size
-            self.current_pos = 0
-            self.closed = False
-
-        def read(self, size=0):
-            if self.closed:
-                raise RuntimeError('The stream is closed')
-            if self.current_pos == self.size - 1:
-                return ''
-            if size == -1 or self.current_pos + size > self.size:
-                ret = 'A'*(self.size - self.current_pos)
-                self.current_pos = self.size - 1
-                return ret
-            self.current_pos += size
-            return 'A'*size
-
-        def next(self):
-            if self.current_pos == self.size:
-                raise StopIteration()
-            self.current_pos += 1
-            return 'A'
-
-        def __iter__(self):
-            return self
-
-        def close(self):
-            self.closed = True
-
     class FakeSwift(object):
         def __init__(self):
             self.size = 1024
             self.status = 200
 
         def get_object(self, account, container, key, headers={}):
-            self.fake_stream = TestFileWrapper.FakeStream(self.size)
+            self.fake_stream = FakeStream(self.size)
             return (self.status,
                     {'Content-Length': self.size},
                     self.fake_stream)
