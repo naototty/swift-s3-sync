@@ -1,3 +1,6 @@
+import eventlet
+eventlet.patcher.monkey_patch(all=True)
+
 import boto3
 import botocore.exceptions
 from botocore.handlers import conditionally_calculate_md5
@@ -20,6 +23,8 @@ class SyncContainer(container_crawler.base_sync.BaseSync):
     PREFIX_LEN = 6
     PREFIX_SPACE = 16**PREFIX_LEN
     BOTO_CONN_POOL_SIZE = 10
+    SLO_WORKERS = 10
+    SLO_QUEUE_SIZE = 100
 
     class BotoClientPoolEntry(object):
         def __init__(self, client):
@@ -255,41 +260,94 @@ class SyncContainer(container_crawler.base_sync.BaseSync):
                 Bucket=self.aws_bucket,
                 Key=s3_key,
                 Metadata=convert_to_s3_headers(object_meta))
+        upload_id = multipart_resp['UploadId']
 
-        # TODO: parallelize the upload of the parts. This can either be
-        # greenthreads here, returning work to the caller (need to invent a new
-        # interface), or some other way.
+        work_queue = eventlet.queue.Queue(self.SLO_QUEUE_SIZE)
+        worker_pool = eventlet.greenpool.GreenPool(self.SLO_WORKERS)
+        workers = []
+        for _ in range(0, self.SLO_WORKERS):
+            workers.append(
+                worker_pool.spawn(self._upload_part_worker, upload_id, s3_key,
+                                  req_headers, work_queue))
         for segment_number, segment in enumerate(manifest):
-            container, obj = segment['name'].split('/', 2)[1:]
-            wrapper = FileWrapper(self.swift, self.account, container, obj,
-                                  req_headers)
-            with self.boto_client_pool.get_client() as boto_client:
-                s3_client = boto_client.client
-                resp = s3_client.upload_part(
-                    Bucket=self.aws_bucket,
-                    Body=wrapper,
-                    Key=s3_key,
-                    ContentLength=len(wrapper),
-                    UploadId=multipart_resp['UploadId'],
-                    PartNumber=segment_number + 1)
-                if not self.check_etag(segment['hash'], resp['ETag']):
-                    # TODO: retry uploading the part
-                    raise RuntimeError('Part %d ETag mismatch (%s): %s %s' % (
-                                       segment_number + 1,
-                                       self.account + segment['name'],
-                                       segment['hash'], resp['ETag']))
+            work_queue.put((segment_number + 1, segment))
+
+        work_queue.join()
+        for _ in range(0, self.SLO_WORKERS):
+            work_queue.put(None)
+
+        errors = []
+        for thread in workers:
+            errors += thread.wait()
+
+        # TODO: errors list contains the failed part numbers. We should retry
+        # those parts on failure.
+        if errors:
+            self._abort_upload(s3_key, upload_id)
+            raise RuntimeError('Failed to upload an SLO as %s' % s3_key)
+
         with self.boto_client_pool.get_client() as boto_client:
             s3_client = boto_client.client
             # TODO: Validate the response ETag
-            s3_client.complete_multipart_upload(
-                Bucket=self.aws_bucket,
-                Key=s3_key,
-                MultipartUpload={'Parts': [
-                    {'PartNumber': number + 1,
-                     'ETag': segment['hash']}
-                    for number, segment in enumerate(manifest)]
-                },
-                UploadId=multipart_resp['UploadId'])
+            try:
+                s3_client.complete_multipart_upload(
+                    Bucket=self.aws_bucket,
+                    Key=s3_key,
+                    MultipartUpload={'Parts': [
+                        {'PartNumber': number + 1,
+                         'ETag': segment['hash']}
+                        for number, segment in enumerate(manifest)]
+                    },
+                    UploadId=upload_id)
+            except:
+                self._abort_upload(s3_key, upload_id, client=s3_client)
+                raise
+
+    def _abort_upload(self, s3_key, upload_id, client=None):
+        if not client:
+            with self.boto_client_pool.get_client() as boto_client:
+                client = boto_client.client
+                client.abort_multipart_upload(
+                    Bucket=self.aws_bucket, Key=s3_key, UploadId=upload_id)
+        else:
+            client.abort_multipart_upload(
+                Bucket=self.aws_bucket, Key=s3_key, UploadId=upload_id)
+
+    def _upload_part_worker(self, upload_id, s3_key, req_headers, queue):
+        errors = []
+        while True:
+            work = queue.get()
+            if not work:
+                queue.task_done()
+                return errors
+
+            try:
+                part_number, segment = work
+                container, obj = segment['name'].split('/', 2)[1:]
+                wrapper = FileWrapper(self._swift_client, self.account,
+                                      container, obj, req_headers)
+
+                with self.boto_client_pool.get_client() as boto_client:
+                    s3_client = boto_client.client
+                    resp = s3_client.upload_part(
+                        Bucket=self.aws_bucket,
+                        Body=wrapper,
+                        Key=s3_key,
+                        ContentLength=len(wrapper),
+                        UploadId=upload_id,
+                        PartNumber=part_number)
+                    if not self.check_etag(segment['hash'], resp['ETag']):
+                        self.logger.error('Part %d ETag mismatch (%s): %s %s' %
+                            (part_number, self.account + segment['name'],
+                             segment['hash'], resp['ETag']))
+                        errors.append(part_number)
+            except:
+                self.logger.error('Failed to upload part %d for %s: %s' % (
+                    part_number, self.account + segment['name'],
+                    traceback.format_exc()))
+                errors.append(part_number)
+            finally:
+                queue.task_done()
 
     def delete_object(self, swift_key):
         s3_key = self.get_s3_name(swift_key)
