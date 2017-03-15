@@ -25,6 +25,11 @@ class SyncContainer(container_crawler.base_sync.BaseSync):
     BOTO_CONN_POOL_SIZE = 10
     SLO_WORKERS = 10
     SLO_QUEUE_SIZE = 100
+    MB = 1024*1024
+    GB = 1024*MB
+    MIN_PART_SIZE = 5*MB
+    MAX_PART_SIZE = 5*GB
+    MAX_PARTS = 10000
 
     class BotoClientPoolEntry(object):
         def __init__(self, client):
@@ -33,7 +38,7 @@ class SyncContainer(container_crawler.base_sync.BaseSync):
             self.client = client
 
         def acquire(self):
-            return self.semaphore.acquire(blocking=False)
+            return self.semaphore.acquire(blocking=True)
 
         def __enter__(self):
             return self
@@ -69,12 +74,13 @@ class SyncContainer(container_crawler.base_sync.BaseSync):
             return s3_client
 
         def get_client(self):
+            # SLO uploads may exhaust the client pool and we will need to wait
+            # for connections
             with self.get_semaphore:
                 # we are guaranteed that there is an open connection we can use
                 for client in self.client_pool:
                     if client.acquire():
                         return client
-                raise RuntimeError('Failed to get a client!')
 
     def __init__(self, status_dir, sync_settings, max_conns=10):
         super(SyncContainer, self).__init__(status_dir, sync_settings)
@@ -151,13 +157,11 @@ class SyncContainer(container_crawler.base_sync.BaseSync):
             f.truncate()
 
     def get_s3_name(self, key):
-        concat_key = u'%s/%s/%s' % (self.account, self.container,
-                                    key.decode('utf-8'))
         md5_hash = hashlib.md5('%s/%s' % (
             self.account, self.container)).hexdigest()
         # strip off 0x and L
         prefix = hex(long(md5_hash, 16) % self.PREFIX_SPACE)[2:-1]
-        return '%s/%s' % (prefix, concat_key)
+        return '%s/%s' % (prefix, self._full_name(key))
 
     def handle(self, row):
         if row['deleted']:
@@ -230,14 +234,15 @@ class SyncContainer(container_crawler.base_sync.BaseSync):
             body.close()
             raise RuntimeError('Failed to get the manifest')
         manifest = json.load(FileLikeIter(body))
+        body.close()
         self.logger.debug("JSON manifest: %s" % str(manifest))
-        # TODO: take range into account
-        if len(manifest) > 10000:
-            self.logger.error('Cannot upload a manifest with more than 10000'
-                              'segments: %s/%s/%s' % (self.account,
-                                                      self.container,
-                                                      swift_key))
-            body.close()
+        if not self._validate_slo_manifest(manifest):
+            # We do not raise an exception here -- we should not retry these
+            # errors and they will be logged.
+            # TODO: When we report statistics, we need to account for permanent
+            # failures.
+            self.logger.error('Failed to validate the SLO manifest for %s' %
+                              self._full_name(swift_key))
             return
 
         expected_etag = get_slo_etag(manifest)
@@ -252,6 +257,36 @@ class SyncContainer(container_crawler.base_sync.BaseSync):
                 return
 
         self._upload_slo(manifest, headers, s3_key, swift_req_hdrs)
+
+    def _validate_slo_manifest(self, manifest):
+        parts = len(manifest)
+        if parts > self.MAX_PARTS:
+            self.logger.error('Cannot upload a manifest with more than %d '
+                              'segments. ' % self.MAX_PARTS)
+            return False
+
+        for index, segment in enumerate(manifest):
+            if 'bytes' not in segment or 'hash' not in segment:
+                # Should never happen
+                self.logger.error('SLO segment %s must include size and etag' %
+                                  segment['name'])
+                return False
+            size = int(segment['bytes'])
+            if size < self.MIN_PART_SIZE and index < parts - 1:
+                self.logger.error('SLO segment %s must be greater than %d MB' %
+                                  (segment['name'],
+                                   self.MIN_PART_SIZE / self.MB))
+                return False
+            if size > self.MAX_PART_SIZE:
+                self.logger.error('SLO segment %s must be smaller than %d GB' %
+                                  (segment['name'],
+                                   self.MAX_PART_SIZE / self.GB))
+                return False
+            if 'range' in segment:
+                self.logger.error('Found unsupported "range" parameter for %s '
+                                  'segment ' % segment['name'])
+                return False
+        return True
 
     def _upload_slo(self, manifest, object_meta, s3_key, req_headers):
         with self.boto_client_pool.get_client() as boto_client:
@@ -268,7 +303,7 @@ class SyncContainer(container_crawler.base_sync.BaseSync):
         for _ in range(0, self.SLO_WORKERS):
             workers.append(
                 worker_pool.spawn(self._upload_part_worker, upload_id, s3_key,
-                                  req_headers, work_queue))
+                                  req_headers, work_queue, len(manifest)))
         for segment_number, segment in enumerate(manifest):
             work_queue.put((segment_number + 1, segment))
 
@@ -313,7 +348,8 @@ class SyncContainer(container_crawler.base_sync.BaseSync):
             client.abort_multipart_upload(
                 Bucket=self.aws_bucket, Key=s3_key, UploadId=upload_id)
 
-    def _upload_part_worker(self, upload_id, s3_key, req_headers, queue):
+    def _upload_part_worker(self, upload_id, s3_key, req_headers, queue,
+                            part_count):
         errors = []
         while True:
             work = queue.get()
@@ -328,6 +364,9 @@ class SyncContainer(container_crawler.base_sync.BaseSync):
                                       container, obj, req_headers)
 
                 with self.boto_client_pool.get_client() as boto_client:
+                    self.logger.debug('Uploading part %d from %s: %s bytes' % (
+                        part_number, self.account + segment['name'],
+                        segment['bytes']))
                     s3_client = boto_client.client
                     resp = s3_client.upload_part(
                         Bucket=self.aws_bucket,
@@ -338,8 +377,9 @@ class SyncContainer(container_crawler.base_sync.BaseSync):
                         PartNumber=part_number)
                     if not self.check_etag(segment['hash'], resp['ETag']):
                         self.logger.error('Part %d ETag mismatch (%s): %s %s' %
-                            (part_number, self.account + segment['name'],
-                             segment['hash'], resp['ETag']))
+                                          (part_number,
+                                           self.account + segment['name'],
+                                           segment['hash'], resp['ETag']))
                         errors.append(part_number)
             except:
                 self.logger.error('Failed to upload part %d for %s: %s' % (
@@ -415,6 +455,10 @@ class SyncContainer(container_crawler.base_sync.BaseSync):
                     Metadata=convert_to_s3_headers(swift_meta),
                     Bucket=self.aws_bucket,
                     Key=s3_key)
+
+    def _full_name(self, key):
+        return u'%s/%s/%s' % (self.account, self.container,
+                              key.decode('utf-8'))
 
     @staticmethod
     def check_etag(swift_etag, s3_etag):

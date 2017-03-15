@@ -479,7 +479,7 @@ class TestSyncContainer(unittest.TestCase):
         def get_object(account, container, key, headers):
             if key == slo_key:
                 return (200, {'x-static-large-object': 'True'},
-                        json.dumps(manifest))
+                        FakeStream(content=json.dumps(manifest)))
             raise RuntimeError('Unknown key!')
 
         self.mock_ic.get_object_metadata.side_effect = get_metadata
@@ -510,7 +510,7 @@ class TestSyncContainer(unittest.TestCase):
                      'hash': 'deadbeef'},
                     {'name': '/segment_container/slo-object/part2',
                      'hash': 'beefdead'}]
-        fake_body = FakeStream(4096)
+        fake_body = FakeStream(5*SyncContainer.MB)
 
         self.mock_boto3_client.create_multipart_upload.return_value = {
             'UploadId': 'mpu-key-for-slo'}
@@ -537,13 +537,13 @@ class TestSyncContainer(unittest.TestCase):
             mock.call(Bucket=self.aws_bucket,
                       Key=self.sync_container.get_s3_name(slo_key),
                       PartNumber=1,
-                      ContentLength=4096,
+                      ContentLength=len(fake_body),
                       Body=mock.ANY,
                       UploadId='mpu-key-for-slo'),
             mock.call(Bucket=self.aws_bucket,
                       Key=self.sync_container.get_s3_name(slo_key),
                       PartNumber=2,
-                      ContentLength=4096,
+                      ContentLength=len(fake_body),
                       Body=mock.ANY,
                       UploadId='mpu-key-for-slo')
         ])
@@ -565,9 +565,11 @@ class TestSyncContainer(unittest.TestCase):
         swift_req_headers = {'X-Backend-Storage-Policy-Index': storage_policy,
                              'X-Newest': True}
         manifest = [{'name': '/segment_container/slo-object/part1',
-                     'hash': 'deadbeef'},
+                     'hash': 'deadbeef',
+                     'bytes': 5*SyncContainer.MB},
                     {'name': '/segment_container/slo-object/part2',
-                     'hash': 'beefdead'}]
+                     'hash': 'beefdead',
+                     'bytes': 5*SyncContainer.MB}]
 
         self.mock_boto3_client.head_object.return_value = {
             'Metadata': {},
@@ -581,7 +583,7 @@ class TestSyncContainer(unittest.TestCase):
         }
         self.mock_ic.get_object_metadata.return_value = slo_meta
         self.mock_ic.get_object.return_value = (
-            200, slo_meta, json.dumps(manifest))
+            200, slo_meta, FakeStream(content=json.dumps(manifest)))
 
         self.sync_container.upload_object(slo_key, storage_policy)
 
@@ -601,9 +603,11 @@ class TestSyncContainer(unittest.TestCase):
         swift_req_headers = {'X-Backend-Storage-Policy-Index': storage_policy,
                              'X-Newest': True}
         manifest = [{'name': '/segment_container/slo-object/part1',
-                     'hash': 'deadbeef'},
+                     'hash': 'deadbeef',
+                     'bytes': 5 * SyncContainer.MB},
                     {'name': '/segment_container/slo-object/part2',
-                     'hash': 'beefdead'}]
+                     'hash': 'beefdead',
+                     'bytes': 5 * SyncContainer.MB}]
 
         self.mock_boto3_client.head_object.return_value = {
             'Metadata': {},
@@ -618,7 +622,7 @@ class TestSyncContainer(unittest.TestCase):
         }
         self.mock_ic.get_object_metadata.return_value = slo_meta
         self.mock_ic.get_object.return_value = (
-            200, slo_meta, json.dumps(manifest))
+            200, slo_meta, FakeStream(content=json.dumps(manifest)))
 
         self.sync_container.upload_object(slo_key, storage_policy)
 
@@ -654,7 +658,7 @@ class TestSyncContainer(unittest.TestCase):
         }
         self.mock_ic.get_object_metadata.return_value = slo_meta
         self.mock_ic.get_object.return_value = (
-            200, slo_meta, json.dumps(manifest))
+            200, slo_meta, FakeStream(content=json.dumps(manifest)))
 
         self.sync_container.upload_object(slo_key, storage_policy)
 
@@ -665,7 +669,7 @@ class TestSyncContainer(unittest.TestCase):
         self.mock_ic.get_object.assert_called_once_with(
             'account', 'container', slo_key, headers=swift_req_headers)
 
-    def test_slo_metadata_update(self, ):
+    def test_slo_metadata_update(self):
         slo_meta = {
             'x-static-large-object': 'True',
             'x-object-meta-new-key': 'foo',
@@ -677,7 +681,7 @@ class TestSyncContainer(unittest.TestCase):
             {'name': '/segments/slo-object/part2',
              'hash': 'fedcba'}]
         s3_key = self.sync_container.get_s3_name('slo-object')
-        segment_lengths = [123, 456]
+        segment_lengths = [12*SyncContainer.MB, 14*SyncContainer.MB]
 
         def get_object_metadata(account, container, key, headers):
             return {'content-length': segment_lengths[int(key[-1]) - 1]}
@@ -703,10 +707,14 @@ class TestSyncContainer(unittest.TestCase):
         self.mock_boto3_client.upload_part_copy.assert_has_calls([
             mock.call(Bucket=self.aws_bucket, Key=s3_key, PartNumber=1,
                       CopySource={'Bucket': self.aws_bucket, 'Key': s3_key},
-                      CopySourceRange='bytes=0-122', UploadId='mpu-upload'),
+                      CopySourceRange='bytes=0-%d' % (12*SyncContainer.MB - 1),
+                      UploadId='mpu-upload'),
             mock.call(Bucket=self.aws_bucket, Key=s3_key, PartNumber=2,
                       CopySource={'Bucket': self.aws_bucket, 'Key': s3_key},
-                      CopySourceRange='bytes=123-578', UploadId='mpu-upload')
+                      CopySourceRange='bytes=%d-%d' % (
+                        12 * SyncContainer.MB,
+                        26 * SyncContainer.MB - 1),
+                      UploadId='mpu-upload')
         ])
         self.mock_boto3_client.complete_multipart_upload\
             .assert_called_once_with(Bucket=self.aws_bucket, Key=s3_key,
@@ -715,3 +723,43 @@ class TestSyncContainer(unittest.TestCase):
                                         {'PartNumber': 1, 'ETag': 'abcdef'},
                                         {'PartNumber': 2, 'ETag': 'fedcba'}
                                      ]})
+
+    def test_validate_manifest_too_many_parts(self):
+        segments = [{'name': '/segment/%d' % i} for i in xrange(10001)]
+        self.assertEqual(
+            False, self.sync_container._validate_slo_manifest(segments))
+
+    def test_validate_manifest_small_part(self):
+        segments = [{'name': '/segment/1',
+                     'bytes': 10*SyncContainer.MB},
+                    {'name': '/segment/2',
+                     'bytes': 10},
+                    {'name': '/segment/3',
+                     'bytes': '10'}]
+        self.assertEqual(
+            False, self.sync_container._validate_slo_manifest(segments))
+
+    def test_validate_manifest_large_part(self):
+        segments = [{'name': '/segment/1',
+                     'bytes': 10*SyncContainer.MB},
+                    {'name': '/segment/2',
+                     'bytes': 10 * SyncContainer.GB},
+                    {'name': '/segment/3',
+                     'bytes': '10'}]
+        self.assertEqual(
+            False, self.sync_container._validate_slo_manifest(segments))
+
+    def test_validate_manifest_small(self):
+        segments = [{'name': '/segment/1',
+                     'hash': 'abcdef',
+                     'bytes': 10}]
+        self.assertEqual(
+            True, self.sync_container._validate_slo_manifest(segments))
+
+    def test_validate_manifest_range(self):
+        segments = [{'name': '/segment/1',
+                     'hash': 'abcdef',
+                     'range': '102453-102462',
+                     'bytes': 10}]
+        self.assertEqual(
+            False, self.sync_container._validate_slo_manifest(segments))
