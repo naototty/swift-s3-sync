@@ -14,8 +14,9 @@ import traceback
 
 import container_crawler.base_sync
 from swift.common.utils import FileLikeIter
-from .utils import (convert_to_s3_headers, FileWrapper,
-                    is_object_meta_synced, get_slo_etag)
+from .utils import (convert_to_s3_headers, FileWrapper, SLOFileWrapper,
+                    is_object_meta_synced, get_slo_etag, check_slo,
+                    SLO_ETAG_FIELD)
 
 
 class SyncContainer(container_crawler.base_sync.BaseSync):
@@ -30,6 +31,7 @@ class SyncContainer(container_crawler.base_sync.BaseSync):
     MIN_PART_SIZE = 5*MB
     MAX_PART_SIZE = 5*GB
     MAX_PARTS = 10000
+    GOOGLE_API = 'https://storage.googleapis.com'
 
     class BotoClientPoolEntry(object):
         def __init__(self, client):
@@ -99,6 +101,8 @@ class SyncContainer(container_crawler.base_sync.BaseSync):
         aws_secret = settings['aws_secret']
         # assumes local swift-proxy
         aws_endpoint = settings.get('aws_endpoint', None)
+        self._google = aws_endpoint == self.GOOGLE_API
+
         if not aws_endpoint or aws_endpoint.endswith('amazonaws.com'):
             # We always use v4 signer with Amazon, as it will support all
             # regions.
@@ -191,7 +195,7 @@ class SyncContainer(container_crawler.base_sync.BaseSync):
             self.account, self.container, swift_key, headers=swift_req_hdrs)
 
         self.logger.debug("Metadata: %s" % str(metadata))
-        if self.check_slo(metadata):
+        if check_slo(metadata):
             self.upload_slo(swift_key, storage_policy_index, s3_meta)
             return
 
@@ -223,7 +227,11 @@ class SyncContainer(container_crawler.base_sync.BaseSync):
         # NOTE: If the SLO segment is < 5MB and is not the last segment, the
         # UploadPart call will fail. We need to stitch segments together in
         # that case.
-        # TODO: support DLOs.
+        #
+        # For Google Cloud Storage, we will convert the SLO into a single
+        # object put, assuming the SLO is < 5TB. If the SLO is > 5TB, we have
+        # to fail the upload. With GCS _compose_, we could support larger
+        # objects, but defer this work for the time being.
         swift_req_hdrs = {
             'X-Backend-Storage-Policy-Index': storage_policy_index,
             'X-Newest': True
@@ -236,6 +244,8 @@ class SyncContainer(container_crawler.base_sync.BaseSync):
         manifest = json.load(FileLikeIter(body))
         body.close()
         self.logger.debug("JSON manifest: %s" % str(manifest))
+        s3_key = self.get_s3_name(swift_key)
+
         if not self._validate_slo_manifest(manifest):
             # We do not raise an exception here -- we should not retry these
             # errors and they will be logged.
@@ -245,9 +255,19 @@ class SyncContainer(container_crawler.base_sync.BaseSync):
                               self._full_name(swift_key))
             return
 
+        if self._google:
+            if s3_meta:
+                slo_etag = s3_meta['Metadata'].get(SLO_ETAG_FIELD, None)
+                if slo_etag == headers['etag']:
+                    if is_object_meta_synced(s3_meta['Metadata'], headers):
+                        return
+                    self.update_metadata(headers, s3_key)
+                    return
+            self._upload_google_slo(manifest, headers, s3_key, swift_req_hdrs)
+            return
+
         expected_etag = get_slo_etag(manifest)
 
-        s3_key = self.get_s3_name(swift_key)
         if s3_meta and self.check_etag(expected_etag, s3_meta['ETag']):
             if is_object_meta_synced(s3_meta['Metadata'], headers):
                 return
@@ -257,6 +277,17 @@ class SyncContainer(container_crawler.base_sync.BaseSync):
                 return
 
         self._upload_slo(manifest, headers, s3_key, swift_req_hdrs)
+
+    def _upload_google_slo(self, manifest, metadata, s3_key, req_hdrs):
+        slo_wrapper = SLOFileWrapper(
+            self._swift_client, self.account, manifest, metadata, req_hdrs)
+        with self.boto_client_pool.get_client() as boto_client:
+            s3_client = boto_client.client
+            s3_client.put_object(Bucket=self.aws_bucket,
+                                 Key=s3_key,
+                                 Body=slo_wrapper,
+                                 Metadata=slo_wrapper.get_s3_headers(),
+                                 ContentLength=len(slo_wrapper))
 
     def _validate_slo_manifest(self, manifest):
         parts = len(manifest)
@@ -447,7 +478,7 @@ class SyncContainer(container_crawler.base_sync.BaseSync):
             s3_key, convert_to_s3_headers(swift_meta)))
         with self.boto_client_pool.get_client() as boto_client:
             s3_client = boto_client.client
-            if not self.check_slo(swift_meta):
+            if not check_slo(swift_meta):
                 s3_client.copy_object(
                     CopySource={'Bucket': self.aws_bucket,
                                 'Key': s3_key},
@@ -470,9 +501,3 @@ class SyncContainer(container_crawler.base_sync.BaseSync):
         if 'StorageClass' in s3_meta and s3_meta['StorageClass'] == 'GLACIER':
             return True
         return False
-
-    @staticmethod
-    def check_slo(swift_meta):
-        if 'x-static-large-object' not in swift_meta:
-            return False
-        return swift_meta['x-static-large-object'] == 'True'

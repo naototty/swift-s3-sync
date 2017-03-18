@@ -2,6 +2,7 @@
 
 from utils import FakeStream
 from s3_sync import utils
+import mock
 import unittest
 
 
@@ -38,6 +39,13 @@ class TestUtilsFunctions(unittest.TestCase):
                         'x-object-meta-date': 'Wed, April 30 10:32:21 UTC'},
                        {'unicode': '%F0%9F%91%8D',
                         'date': 'Wed%2C%20April%2030%2010%3A32%3A21%20UTC'},
+                       True),
+                      ({'x-object-meta-foo': 'foo',
+                        'x-object-meta-bar': 'bar',
+                        'x-static-large-object': 'True'},
+                       {'swift-slo-etag': 'deadbeef',
+                        'foo': 'foo',
+                        'bar': 'bar'},
                        True)]
         for swift_meta, s3_meta, expected in test_metas:
             self.assertEqual(expected, utils.is_object_meta_synced(s3_meta,
@@ -51,20 +59,21 @@ class TestUtilsFunctions(unittest.TestCase):
         self.assertEqual(expected_tag, utils.get_slo_etag(sample_manifest))
 
 
+class FakeSwift(object):
+    def __init__(self):
+        self.size = 1024
+        self.status = 200
+
+    def get_object(self, account, container, key, headers={}):
+        self.fake_stream = FakeStream(self.size)
+        return (self.status,
+                {'Content-Length': self.size},
+                self.fake_stream)
+
+
 class TestFileWrapper(unittest.TestCase):
-    class FakeSwift(object):
-        def __init__(self):
-            self.size = 1024
-            self.status = 200
-
-        def get_object(self, account, container, key, headers={}):
-            self.fake_stream = FakeStream(self.size)
-            return (self.status,
-                    {'Content-Length': self.size},
-                    self.fake_stream)
-
     def setUp(self):
-        self.mock_swift = self.FakeSwift()
+        self.mock_swift = FakeSwift()
 
     def test_open(self):
         wrapper = utils.FileWrapper(self.mock_swift,
@@ -81,3 +90,84 @@ class TestFileWrapper(unittest.TestCase):
         wrapper.read(256)
         wrapper.seek(0)
         self.assertEqual(0, self.mock_swift.fake_stream.current_pos)
+
+
+class TestSLOFileWrapper(unittest.TestCase):
+    def setUp(self):
+        self.manifest = [
+            {'name': '/foo/part1',
+             'bytes': 500},
+            {'name': '/foo/part2',
+             'bytes': 1000}
+        ]
+        self.swift = mock.Mock()
+
+    def test_slo_length(self):
+        slo = utils.SLOFileWrapper(self.swift, 'account', self.manifest,
+                                   {'etag': 'deadbeef'})
+        self.assertEqual(1500, len(slo))
+
+    def test_slo_headers(self):
+        slo = utils.SLOFileWrapper(self.swift, 'account', self.manifest,
+                             {'etag': 'deadbeef'})
+
+        self.assertEqual(1500, len(slo))
+        self.assertEqual(
+            'deadbeef', slo.get_s3_headers()['swift-slo-etag'])
+
+    def test_seek_after_read(self):
+        fake_segment = FakeStream(content='A' * 500)
+        self.assertEqual(False, fake_segment.closed)
+
+        def get_object(account, container, key, headers={}):
+            if account != 'account':
+                raise RuntimeError('unknown account')
+            if container != 'foo':
+                raise RuntimeError('unknown container')
+            if key == 'part1':
+                return (200, {'Content-Length': 500}, fake_segment)
+            raise RuntimeError('unknown key')
+
+        self.swift.get_object.side_effect = get_object
+        slo = utils.SLOFileWrapper(self.swift, 'account', self.manifest,
+                                   {'etag': 'deadbeef'})
+        data = slo.read()
+        slo.seek(0)
+        self.assertEqual(True, fake_segment.closed)
+        self.assertEqual('A' * 500, data)
+        self.swift.get_object.assert_called_once_with(
+            'account', 'foo', 'part1', headers={})
+
+    def test_read_manifest(self):
+        part1_content = FakeStream(content='A' * 500)
+        part2_content = FakeStream(content='B' * 1000)
+
+        def get_object(account, container, key, headers={}):
+            if account != 'account':
+                raise RuntimeError('unknown account')
+            if container != 'foo':
+                raise RuntimeError('unknown container')
+            if key == 'part1':
+                return (200, {'Content-Length': 500}, part1_content)
+            if key == 'part2':
+                return (200, {'Content-Length': 1000}, part2_content)
+            raise RuntimeError('unknown key')
+
+        self.swift.get_object.side_effect = get_object
+        slo = utils.SLOFileWrapper(self.swift, 'account', self.manifest,
+                                   {'etag': 'deadbeef'})
+        content = ''
+        while True:
+            data = slo.read()
+            content += data
+            if not data:
+                break
+        self.assertEqual(1500, len(content))
+        self.assertEqual('A'*500, content[0:500])
+        self.assertEqual('B'*1000, content[500:1500])
+
+        self.swift.get_object.has_calls(
+            mock.call('account', 'foo', 'part1', {}),
+            mock.call('account', 'foo', 'part2', {}))
+        self.assertEqual(True, part1_content.closed)
+        self.assertEqual(True, part2_content.closed)

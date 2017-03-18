@@ -232,12 +232,6 @@ class TestSyncContainer(unittest.TestCase):
                                              self.sync_container.container))],
                     mock_exists.call_args_list)
 
-    @mock.patch('__builtin__.open')
-    @mock.patch('s3_sync.sync_container.os.path.exists')
-    def test_save_old_status(self, mock_exists, mock_open):
-        # TODO: missing test
-        pass
-
     @mock.patch('s3_sync.sync_container.FileWrapper')
     def test_upload_new_object(self, mock_file_wrapper):
         key = 'key'
@@ -253,6 +247,7 @@ class TestSyncContainer(unittest.TestCase):
             {'Error': {'Code': 404}}, 'HEAD')
         self.sync_container.check_slo = mock.Mock()
         self.sync_container.check_slo.return_value = False
+        self.mock_ic.get_object_metadata.return_value = {}
 
         self.sync_container.upload_object(key, storage_policy)
 
@@ -283,6 +278,7 @@ class TestSyncContainer(unittest.TestCase):
             {'Error': {'Code': 404}}, 'HEAD')
         self.sync_container.check_slo = mock.Mock()
         self.sync_container.check_slo.return_value = False
+        self.mock_ic.get_object_metadata.return_value = {}
 
         self.sync_container.upload_object(key, storage_policy)
 
@@ -473,12 +469,12 @@ class TestSyncContainer(unittest.TestCase):
 
         def get_metadata(account, container, key, headers):
             if key == slo_key:
-                return {'x-static-large-object': 'True'}
+                return {utils.SLO_HEADER: 'True'}
             raise RuntimeError('Unknown key')
 
         def get_object(account, container, key, headers):
             if key == slo_key:
-                return (200, {'x-static-large-object': 'True'},
+                return (200, {utils.SLO_HEADER: 'True'},
                         FakeStream(content=json.dumps(manifest)))
             raise RuntimeError('Unknown key!')
 
@@ -493,10 +489,80 @@ class TestSyncContainer(unittest.TestCase):
             Key=self.sync_container.get_s3_name(slo_key))
         self.mock_ic.get_object_metadata.assert_called_once_with(
             'account', 'container', slo_key, headers=swift_req_headers)
-        self.mock_ic.get_object.assert_has_calls([
-            mock.call('account', 'container', slo_key,
-                      headers=swift_req_headers)
-        ])
+        self.mock_ic.get_object.assert_called_once_with(
+            'account', 'container', slo_key, headers=swift_req_headers)
+
+    @mock.patch('s3_sync.sync_container.boto3.session.Session')
+    @mock.patch(
+        's3_sync.sync_container.container_crawler.base_sync.InternalClient')
+    def test_google_set(self, mock_ic, mock_session):
+        session = mock.Mock()
+        mock_session.return_value = session
+
+        client = mock.Mock()
+        session.client.return_value = client
+
+        sync = SyncContainer(self.scratch_space,
+                             {'aws_bucket': self.aws_bucket,
+                              'aws_identity': 'identity',
+                              'aws_secret': 'credential',
+                              'account': 'account',
+                              'container': 'container',
+                              'aws_endpoint': SyncContainer.GOOGLE_API})
+        session.client.assert_called_once_with(
+            's3', config=mock.ANY, endpoint_url=SyncContainer.GOOGLE_API)
+        self.assertEqual(True, sync._google)
+
+    def test_google_slo_upload(self):
+        self.sync_container._google = True
+        slo_key = 'slo-object'
+        storage_policy = 42
+        swift_req_headers = {'X-Backend-Storage-Policy-Index': storage_policy,
+                             'X-Newest': True}
+        manifest = [{'name': '/segment_container/slo-object/part1',
+                     'hash': 'deadbeef',
+                     'bytes': 5 * SyncContainer.MB},
+                    {'name': '/segment_container/slo-object/part2',
+                     'hash': 'beefdead',
+                     'bytes': 200}]
+
+        self.mock_boto3_client.head_object.side_effect = ClientError(
+            {'Error': {'Code': 404}}, 'HEAD')
+
+        def get_metadata(account, container, key, headers):
+            if key == slo_key:
+                return {utils.SLO_HEADER: 'True'}
+            raise RuntimeError('Unknown key')
+
+        def get_object(account, container, key, headers):
+            if key == slo_key:
+                return (200, {'etag': 'swift-slo-etag'},
+                        FakeStream(content=json.dumps(manifest)))
+            raise RuntimeError('Unknown key!')
+
+        self.mock_ic.get_object_metadata.side_effect = get_metadata
+        self.mock_ic.get_object.side_effect = get_object
+
+        self.sync_container.upload_object(slo_key, storage_policy)
+
+        self.mock_boto3_client.head_object.assert_called_once_with(
+            Bucket=self.aws_bucket,
+            Key=self.sync_container.get_s3_name(slo_key))
+
+        args, kwargs = self.mock_boto3_client.put_object.call_args
+        self.assertEqual(self.aws_bucket, kwargs['Bucket'])
+        self.assertEqual(
+            self.sync_container.get_s3_name(slo_key), kwargs['Key'])
+        self.assertEqual(5 * SyncContainer.MB + 200, kwargs['ContentLength'])
+        self.assertEqual(
+            {utils.SLO_ETAG_FIELD: 'swift-slo-etag'},
+            kwargs['Metadata'])
+        self.assertEqual(utils.SLOFileWrapper, type(kwargs['Body']))
+
+        self.mock_ic.get_object_metadata.assert_called_once_with(
+            'account', 'container', slo_key, headers=swift_req_headers)
+        self.mock_ic.get_object.assert_called_once_with(
+            'account', 'container', slo_key, headers=swift_req_headers)
 
     @mock.patch('s3_sync.sync_container.FileWrapper')
     def test_internal_slo_upload(self, mock_file_wrapper):
@@ -507,9 +573,11 @@ class TestSyncContainer(unittest.TestCase):
         swift_req_headers = {'X-Backend-Storage-Policy-Index': storage_policy,
                              'X-Newest': True}
         manifest = [{'name': '/segment_container/slo-object/part1',
-                     'hash': 'deadbeef'},
+                     'hash': 'deadbeef',
+                     'bytes': 100},
                     {'name': '/segment_container/slo-object/part2',
-                     'hash': 'beefdead'}]
+                     'hash': 'beefdead',
+                     'bytes': 200}]
         fake_body = FakeStream(5*SyncContainer.MB)
 
         self.mock_boto3_client.create_multipart_upload.return_value = {
@@ -578,7 +646,7 @@ class TestSyncContainer(unittest.TestCase):
         self.sync_container.update_slo_metadata = mock.Mock()
         self.sync_container._upload_slo = mock.Mock()
         slo_meta = {
-            'x-static-large-object': 'True',
+            utils.SLO_HEADER: 'True',
             'x-object-meta-new-key': 'foo'
         }
         self.mock_ic.get_object_metadata.return_value = slo_meta
@@ -617,7 +685,7 @@ class TestSyncContainer(unittest.TestCase):
         self.sync_container.update_slo_metadata = mock.Mock()
         self.sync_container._upload_slo = mock.Mock()
         slo_meta = {
-            'x-static-large-object': 'True',
+            utils.SLO_HEADER: 'True',
             'x-object-meta-new-key': 'foo'
         }
         self.mock_ic.get_object_metadata.return_value = slo_meta
@@ -653,7 +721,7 @@ class TestSyncContainer(unittest.TestCase):
         self.sync_container.update_slo_metadata = mock.Mock()
         self.sync_container._upload_slo = mock.Mock()
         slo_meta = {
-            'x-static-large-object': 'True',
+            utils.SLO_HEADER: 'True',
             'x-object-meta-new-key': 'foo'
         }
         self.mock_ic.get_object_metadata.return_value = slo_meta
@@ -671,7 +739,7 @@ class TestSyncContainer(unittest.TestCase):
 
     def test_slo_metadata_update(self):
         slo_meta = {
-            'x-static-large-object': 'True',
+            utils.SLO_HEADER: 'True',
             'x-object-meta-new-key': 'foo',
             'x-object-meta-other-key': 'bar'
         }
