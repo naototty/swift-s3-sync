@@ -1,6 +1,7 @@
 import hashlib
 import json
 import mock
+import boto3
 from botocore.exceptions import ClientError
 from utils import FakeStream
 from s3_sync import utils
@@ -512,6 +513,50 @@ class TestSyncContainer(unittest.TestCase):
         session.client.assert_called_once_with(
             's3', config=mock.ANY, endpoint_url=SyncContainer.GOOGLE_API)
         self.assertEqual(True, sync._google)
+
+    @mock.patch(
+        's3_sync.sync_container.container_crawler.base_sync.InternalClient')
+    def test_user_agent(self, mock_ic):
+        boto3_ua = boto3.session.Session()._session.user_agent()
+        endpoint_user_agent = {
+            SyncContainer.GOOGLE_API: 'CloudSync/5.0 (GPN:SwiftStack) %s' % (
+                boto3_ua),
+            's3.amazonaws.com': None,
+            None: None,
+            'other.s3-clone.com': None
+        }
+
+        session_class = 's3_sync.sync_container.boto3.session.Session'
+        for endpoint, ua in endpoint_user_agent.items():
+            settings = {'aws_bucket': self.aws_bucket,
+                        'aws_identity': 'identity',
+                        'aws_secret': 'credential',
+                        'account': 'account',
+                        'container': 'container',
+                        'aws_endpoint': endpoint}
+            with mock.patch(session_class) as mock_session:
+                session = mock.Mock()
+                session._session.user_agent.return_value = boto3_ua
+                mock_session.return_value = session
+
+                client = mock.Mock()
+                session.client.return_value = client
+
+                sync = SyncContainer(self.scratch_space, settings)
+                session.client.assert_called_once_with(
+                    's3', config=mock.ANY, endpoint_url=endpoint)
+                called_config = session.client.call_args[1]['config']
+
+                if endpoint and not endpoint.endswith('amazonaws.com'):
+                    self.assertEqual({'addressing_style': 'path'},
+                                     called_config.s3)
+                else:
+                    self.assertEqual('s3v4', called_config.signature_version)
+                    self.assertEqual({'aws_chunked': True}, called_config.s3)
+                self.assertEqual(endpoint == SyncContainer.GOOGLE_API,
+                                 sync._google)
+
+                self.assertEqual(ua, called_config.user_agent)
 
     def test_google_slo_upload(self):
         self.sync_container._google = True

@@ -32,6 +32,8 @@ class SyncContainer(container_crawler.base_sync.BaseSync):
     MAX_PART_SIZE = 5*GB
     MAX_PARTS = 10000
     GOOGLE_API = 'https://storage.googleapis.com'
+    CLOUD_SYNC_VERSION = '5.0'
+    GOOGLE_UA_STRING = 'CloudSync/%s (GPN:SwiftStack)' % CLOUD_SYNC_VERSION
 
     class BotoClientPoolEntry(object):
         def __init__(self, client):
@@ -103,6 +105,9 @@ class SyncContainer(container_crawler.base_sync.BaseSync):
         aws_endpoint = settings.get('aws_endpoint', None)
         self._google = aws_endpoint == self.GOOGLE_API
 
+        boto_session = boto3.session.Session(
+            aws_access_key_id=aws_identity,
+            aws_secret_access_key=aws_secret)
         if not aws_endpoint or aws_endpoint.endswith('amazonaws.com'):
             # We always use v4 signer with Amazon, as it will support all
             # regions.
@@ -112,9 +117,9 @@ class SyncContainer(container_crawler.base_sync.BaseSync):
             # For the other providers, we default to v2 signer, as a lot of
             # them don't support v4 (e.g. Google)
             boto_config = boto3.session.Config(s3={'addressing_style': 'path'})
-        boto_session = boto3.session.Session(
-            aws_access_key_id=aws_identity,
-            aws_secret_access_key=aws_secret)
+            if self._google:
+                boto_config.user_agent = "%s %s" % (
+                    self.GOOGLE_UA_STRING, boto_session._session.user_agent())
         self.boto_client_pool = self.BotoClientPool(
             boto_session, boto_config, aws_endpoint, max_conns)
 
