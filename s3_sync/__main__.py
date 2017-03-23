@@ -25,6 +25,13 @@ def setup_logger(console=False, log_file=None, level='INFO'):
     handler.setFormatter(formatter)
     logger.addHandler(handler)
 
+    logger = logging.getLogger('boto3')
+    logger.setLevel(level)
+    logger.addHandler(handler)
+    logger = logging.getLogger('botocore')
+    logger.setLevel(level)
+    logger.addHandler(handler)
+
 
 def load_swift(once=False):
     logger = logging.getLogger('s3-sync')
