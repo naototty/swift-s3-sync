@@ -109,7 +109,7 @@ class TestSLOFileWrapper(unittest.TestCase):
 
     def test_slo_headers(self):
         slo = utils.SLOFileWrapper(self.swift, 'account', self.manifest,
-                             {'etag': 'deadbeef'})
+                                   {'etag': 'deadbeef'})
 
         self.assertEqual(1500, len(slo))
         self.assertEqual(
