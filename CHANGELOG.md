@@ -1,3 +1,11 @@
+## 0.1.1 (2017-03-22)
+
+Improvements:
+
+    - Add boto3/botocore logging. This is particularly useful at debug level to
+      observe the submitted requests/responses.
+    - Added a user agent string for the Google Partner Network.
+
 ## 0.1.0 (2017-03-20)
 
 Features:

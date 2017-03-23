@@ -6,7 +6,7 @@ with open('requirements.txt') as reqs_file:
     reqs = [req.strip() for req in reqs_file]
 
 setup(name='swift-s3-sync',
-      version='0.1.0',
+      version='0.1.1',
       author='SwiftStack',
       test_suite='nose.collector',
       url='https://github.com/swiftstack/swift-s3-sync',
