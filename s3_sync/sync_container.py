@@ -35,7 +35,7 @@ class SyncContainer(container_crawler.base_sync.BaseSync):
     CLOUD_SYNC_VERSION = '5.0'
     GOOGLE_UA_STRING = 'CloudSync/%s (GPN:SwiftStack)' % CLOUD_SYNC_VERSION
 
-    class BotoClientPoolEntry(object):
+    class HttpClientPoolEntry(object):
         def __init__(self, client):
             self.semaphore = eventlet.semaphore.Semaphore(
                 SyncContainer.BOTO_CONN_POOL_SIZE)
@@ -51,31 +51,17 @@ class SyncContainer(container_crawler.base_sync.BaseSync):
             self.semaphore.release()
             return False
 
-    class BotoClientPool(object):
-        def __init__(self, boto_session, boto_config, endpoint, max_conns):
+    class HttpClientPool(object):
+        def __init__(self, client_factory, max_conns):
             self.get_semaphore = eventlet.semaphore.Semaphore(max_conns)
-            self.client_pool = self._create_pool(boto_session, boto_config,
-                                                 endpoint, max_conns)
+            self.client_pool = self._create_pool(client_factory, max_conns)
 
-        def _create_pool(self, boto_session, boto_config, endpoint, max_conns):
+        def _create_pool(self, client_factory, max_conns):
             clients = max_conns / SyncContainer.BOTO_CONN_POOL_SIZE
             if max_conns % SyncContainer.BOTO_CONN_POOL_SIZE:
                 clients += 1
-            return [SyncContainer.BotoClientPoolEntry(self._make_boto_client(
-                        boto_session, boto_config, endpoint))
+            return [SyncContainer.HttpClientPoolEntry(client_factory())
                     for _ in range(0, clients)]
-
-        def _make_boto_client(self, boto_session, boto_config, endpoint):
-            s3_client = boto_session.client('s3',
-                                            endpoint_url=endpoint,
-                                            config=boto_config)
-            # Remove the Content-MD5 computation as we will supply the MD5
-            # header ourselves
-            s3_client.meta.events.unregister('before-call.s3.PutObject',
-                                             conditionally_calculate_md5)
-            s3_client.meta.events.unregister('before-call.s3.UploadPart',
-                                             conditionally_calculate_md5)
-            return s3_client
 
         def get_client(self):
             # SLO uploads may exhaust the client pool and we will need to wait
@@ -94,11 +80,15 @@ class SyncContainer(container_crawler.base_sync.BaseSync):
         self._status_file = os.path.join(self._status_dir, self.account,
                                          self.container)
         self._status_account_dir = os.path.join(self._status_dir, self.account)
-        self._init_s3(sync_settings, max_conns)
+        self._init_pool(sync_settings, max_conns)
         self.logger = logging.getLogger('s3-sync')
 
-    def _init_s3(self, settings, max_conns):
+    def _init_pool(self, settings, max_conns):
         self.aws_bucket = settings['aws_bucket']
+        self.client_pool = self.HttpClientPool(
+            self._get_boto_client_factory(settings), max_conns)
+
+    def _get_boto_client_factory(self, settings):
         aws_identity = settings['aws_identity']
         aws_secret = settings['aws_secret']
         # assumes local swift-proxy
@@ -120,8 +110,19 @@ class SyncContainer(container_crawler.base_sync.BaseSync):
             if self._google:
                 boto_config.user_agent = "%s %s" % (
                     self.GOOGLE_UA_STRING, boto_session._session.user_agent())
-        self.boto_client_pool = self.BotoClientPool(
-            boto_session, boto_config, aws_endpoint, max_conns)
+
+        def boto_client_factory():
+            s3_client = boto_session.client('s3',
+                                            endpoint_url=aws_endpoint,
+                                            config=boto_config)
+            # Remove the Content-MD5 computation as we will supply the MD5
+            # header ourselves
+            s3_client.meta.events.unregister('before-call.s3.PutObject',
+                                             conditionally_calculate_md5)
+            s3_client.meta.events.unregister('before-call.s3.UploadPart',
+                                             conditionally_calculate_md5)
+            return s3_client
+        return boto_client_factory
 
     def get_last_row(self, db_id):
         if not os.path.exists(self._status_file):
@@ -181,7 +182,7 @@ class SyncContainer(container_crawler.base_sync.BaseSync):
     def upload_object(self, swift_key, storage_policy_index):
         s3_key = self.get_s3_name(swift_key)
         try:
-            with self.boto_client_pool.get_client() as boto_client:
+            with self.client_pool.get_client() as boto_client:
                 s3_client = boto_client.client
                 s3_meta = s3_client.head_object(Bucket=self.aws_bucket,
                                                 Key=s3_key)
@@ -218,7 +219,7 @@ class SyncContainer(container_crawler.base_sync.BaseSync):
                                      swift_req_hdrs)
         self.logger.debug('Uploading %s with meta: %r' % (
             s3_key, wrapper_stream.get_s3_headers()))
-        with self.boto_client_pool.get_client() as boto_client:
+        with self.client_pool.get_client() as boto_client:
             s3_client = boto_client.client
             s3_client.put_object(Bucket=self.aws_bucket,
                                  Key=s3_key,
@@ -286,7 +287,7 @@ class SyncContainer(container_crawler.base_sync.BaseSync):
     def _upload_google_slo(self, manifest, metadata, s3_key, req_hdrs):
         slo_wrapper = SLOFileWrapper(
             self._swift_client, self.account, manifest, metadata, req_hdrs)
-        with self.boto_client_pool.get_client() as boto_client:
+        with self.client_pool.get_client() as boto_client:
             s3_client = boto_client.client
             s3_client.put_object(Bucket=self.aws_bucket,
                                  Key=s3_key,
@@ -325,7 +326,7 @@ class SyncContainer(container_crawler.base_sync.BaseSync):
         return True
 
     def _upload_slo(self, manifest, object_meta, s3_key, req_headers):
-        with self.boto_client_pool.get_client() as boto_client:
+        with self.client_pool.get_client() as boto_client:
             s3_client = boto_client.client
             multipart_resp = s3_client.create_multipart_upload(
                 Bucket=self.aws_bucket,
@@ -357,7 +358,7 @@ class SyncContainer(container_crawler.base_sync.BaseSync):
             self._abort_upload(s3_key, upload_id)
             raise RuntimeError('Failed to upload an SLO as %s' % s3_key)
 
-        with self.boto_client_pool.get_client() as boto_client:
+        with self.client_pool.get_client() as boto_client:
             s3_client = boto_client.client
             # TODO: Validate the response ETag
             try:
@@ -376,7 +377,7 @@ class SyncContainer(container_crawler.base_sync.BaseSync):
 
     def _abort_upload(self, s3_key, upload_id, client=None):
         if not client:
-            with self.boto_client_pool.get_client() as boto_client:
+            with self.client_pool.get_client() as boto_client:
                 client = boto_client.client
                 client.abort_multipart_upload(
                     Bucket=self.aws_bucket, Key=s3_key, UploadId=upload_id)
@@ -399,7 +400,7 @@ class SyncContainer(container_crawler.base_sync.BaseSync):
                 wrapper = FileWrapper(self._swift_client, self.account,
                                       container, obj, req_headers)
 
-                with self.boto_client_pool.get_client() as boto_client:
+                with self.client_pool.get_client() as boto_client:
                     self.logger.debug('Uploading part %d from %s: %s bytes' % (
                         part_number, self.account + segment['name'],
                         segment['bytes']))
@@ -428,7 +429,7 @@ class SyncContainer(container_crawler.base_sync.BaseSync):
     def delete_object(self, swift_key):
         s3_key = self.get_s3_name(swift_key)
         self.logger.debug('Deleting object %s' % s3_key)
-        with self.boto_client_pool.get_client() as boto_client:
+        with self.client_pool.get_client() as boto_client:
             s3_client = boto_client.client
             s3_client.delete_object(Bucket=self.aws_bucket, Key=s3_key)
 
@@ -437,7 +438,7 @@ class SyncContainer(container_crawler.base_sync.BaseSync):
         # creating a new multipart upload, with copy-parts
         # NOTE: if we ever stich MPU objects, we need to replicate the
         # stitching calculation to get the offset correctly.
-        with self.boto_client_pool.get_client() as boto_client:
+        with self.client_pool.get_client() as boto_client:
             s3_client = boto_client.client
             multipart_resp = s3_client.create_multipart_upload(
                 Bucket=self.aws_bucket,
@@ -481,7 +482,7 @@ class SyncContainer(container_crawler.base_sync.BaseSync):
     def update_metadata(self, swift_meta, s3_key):
         self.logger.debug('Updating metadata for %s to %r' % (
             s3_key, convert_to_s3_headers(swift_meta)))
-        with self.boto_client_pool.get_client() as boto_client:
+        with self.client_pool.get_client() as boto_client:
             s3_client = boto_client.client
             if not check_slo(swift_meta):
                 s3_client.copy_object(
