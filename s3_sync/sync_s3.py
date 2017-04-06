@@ -75,7 +75,6 @@ class SyncS3(BaseSync):
                 s3_meta = None
             else:
                 raise e
-        # TODO:  Handle large objects. Should we delete segments in S3?
         swift_req_hdrs = {
             'X-Backend-Storage-Policy-Index': storage_policy_index,
             'X-Newest': True
