@@ -22,35 +22,6 @@ class TestUtilsFunctions(unittest.TestCase):
         for key in out.keys():
             self.assertEqual(expected[key], out[key])
 
-    def test_is_object_meta_synced(self):
-        # The structure for each entry is: swift meta, s3 meta, whether they
-        # should be equal.
-        test_metas = [({'x-object-meta-upper': 'UPPER',
-                        'x-object-meta-lower': 'lower'},
-                       {'upper': 'UPPER',
-                        'lower': 'lower'},
-                       True),
-                      ({'x-object-meta-foo': 'foo',
-                        'x-object-meta-foo': 'bar'},
-                       {'foo': 'not foo',
-                        'bar': 'bar'},
-                       False),
-                      ({'x-object-meta-unicode': '👍',
-                        'x-object-meta-date': 'Wed, April 30 10:32:21 UTC'},
-                       {'unicode': '%F0%9F%91%8D',
-                        'date': 'Wed%2C%20April%2030%2010%3A32%3A21%20UTC'},
-                       True),
-                      ({'x-object-meta-foo': 'foo',
-                        'x-object-meta-bar': 'bar',
-                        'x-static-large-object': 'True'},
-                       {'swift-slo-etag': 'deadbeef',
-                        'foo': 'foo',
-                        'bar': 'bar'},
-                       True)]
-        for swift_meta, s3_meta, expected in test_metas:
-            self.assertEqual(expected, utils.is_object_meta_synced(s3_meta,
-                                                                   swift_meta))
-
     def test_get_slo_etag(self):
         sample_manifest = [{'hash': 'abcdef'}, {'hash': 'fedcba'}]
         # We expect the md5 sum of the concatenated strings (converted to hex

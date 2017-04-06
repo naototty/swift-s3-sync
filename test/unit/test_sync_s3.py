@@ -1,3 +1,5 @@
+# -*- coding: UTF-8 -*-
+
 import hashlib
 import json
 import mock
@@ -665,3 +667,32 @@ class TestSyncS3(unittest.TestCase):
                      'bytes': 10}]
         self.assertEqual(
             False, self.sync_s3._validate_slo_manifest(segments))
+
+    def test_is_object_meta_synced(self):
+        # The structure for each entry is: swift meta, s3 meta, whether they
+        # should be equal.
+        test_metas = [({'x-object-meta-upper': 'UPPER',
+                        'x-object-meta-lower': 'lower'},
+                       {'upper': 'UPPER',
+                        'lower': 'lower'},
+                       True),
+                      ({'x-object-meta-foo': 'foo',
+                        'x-object-meta-foo': 'bar'},
+                       {'foo': 'not foo',
+                        'bar': 'bar'},
+                       False),
+                      ({'x-object-meta-unicode': '👍',
+                        'x-object-meta-date': 'Wed, April 30 10:32:21 UTC'},
+                       {'unicode': '%F0%9F%91%8D',
+                        'date': 'Wed%2C%20April%2030%2010%3A32%3A21%20UTC'},
+                       True),
+                      ({'x-object-meta-foo': 'foo',
+                        'x-object-meta-bar': 'bar',
+                        'x-static-large-object': 'True'},
+                       {'swift-slo-etag': 'deadbeef',
+                        'foo': 'foo',
+                        'bar': 'bar'},
+                       True)]
+        for swift_meta, s3_meta, expected in test_metas:
+            self.assertEqual(expected,
+                             SyncS3.is_object_meta_synced(s3_meta, swift_meta))

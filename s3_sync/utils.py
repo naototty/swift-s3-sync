@@ -141,24 +141,6 @@ def convert_to_s3_headers(swift_headers):
     return s3_headers
 
 
-def is_object_meta_synced(s3_meta, swift_meta):
-    swift_keys = set([key.lower()[len(SWIFT_USER_META_PREFIX):]
-                      for key in swift_meta
-                      if key.lower().startswith(SWIFT_USER_META_PREFIX)])
-    s3_keys = set([key.lower() for key in s3_meta.keys()])
-    if SLO_HEADER in swift_meta and SLO_ETAG_FIELD in s3_keys:
-        # We include the SLO ETag for Google SLO uploads for content
-        # verification
-        s3_keys.remove(SLO_ETAG_FIELD)
-    if set(swift_keys) != set(s3_keys):
-        return False
-    for key in s3_keys:
-        swift_value = urllib.quote(swift_meta[SWIFT_USER_META_PREFIX + key])
-        if s3_meta[key] != swift_value:
-            return False
-    return True
-
-
 def get_slo_etag(manifest):
     etags = [segment['hash'].decode('hex') for segment in manifest]
     md5_hash = hashlib.md5()
