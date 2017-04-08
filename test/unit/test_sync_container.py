@@ -240,7 +240,7 @@ class TestSyncContainer(unittest.TestCase):
                     'account': 'account',
                     'container': 'container'}
         test_settings = [defaults,
-                         dict(defaults.items() + [('provider', 's3')])]
+                         dict(defaults.items() + [('protocol', 's3')])]
 
         for settings in test_settings:
             with mock.patch('s3_sync.sync_container.SyncS3') as mock_sync_s3:
@@ -258,7 +258,7 @@ class TestSyncContainer(unittest.TestCase):
                     'aws_secret': 'credential',
                     'account': 'account',
                     'container': 'container',
-                    'provider': 'swift'}
+                    'protocol': 'swift'}
         with mock.patch('s3_sync.sync_container.SyncSwift') as mock_sync_swift:
             SyncContainer(self.scratch_space, settings, max_conns=1)
             mock_sync_swift.assert_called_once_with(ic, settings, 1)
@@ -274,6 +274,6 @@ class TestSyncContainer(unittest.TestCase):
                     'aws_secret': 'credential',
                     'account': 'account',
                     'container': 'container',
-                    'provider': 'foo'}
+                    'protocol': 'foo'}
         with self.assertRaises(NotImplementedError):
             SyncContainer(self.scratch_space, settings, 1)

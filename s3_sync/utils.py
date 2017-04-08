@@ -62,6 +62,9 @@ class FileWrapper(object):
     def get_s3_headers(self):
         return self._s3_headers
 
+    def get_headers(self):
+        return self._headers
+
     def close(self):
         self._swift_stream.close()
 

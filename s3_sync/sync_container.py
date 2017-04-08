@@ -7,6 +7,7 @@ import os
 import os.path
 import container_crawler.base_sync
 from .sync_s3 import SyncS3
+from .sync_swift import SyncSwift
 
 
 class SyncContainer(container_crawler.base_sync.BaseSync):
@@ -14,10 +15,13 @@ class SyncContainer(container_crawler.base_sync.BaseSync):
         super(SyncContainer, self).__init__(status_dir, sync_settings)
         self.logger = logging.getLogger('s3-sync')
         self.aws_bucket = sync_settings['aws_bucket']
-        provider_type = sync_settings.get('provider', None)
+        provider_type = sync_settings.get('protocol', None)
         if not provider_type or provider_type == 's3':
             self.provider = SyncS3(self._swift_client, sync_settings,
                                    max_conns)
+        elif provider_type == 'swift':
+            self.provider = SyncSwift(self._swift_client, sync_settings,
+                                      max_conns)
         else:
             raise NotImplementedError()
 
