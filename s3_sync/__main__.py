@@ -81,7 +81,7 @@ def main():
 
     # Swift may not be loaded when we start. Spin, waiting for it to load
     load_swift(args.once)
-    from .s3_sync import SyncContainer
+    from .sync_container import SyncContainer
     logger = logging.getLogger('s3-sync')
     logger.debug('Starting S3Sync')
     try:
