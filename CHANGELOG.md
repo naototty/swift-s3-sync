@@ -1,3 +1,18 @@
+## 0.1.2 (2017-04-19)
+
+Features:
+
+    - Implemented support for syncing to Swift. Does not support DLO, but does
+      have parity with S3 sync (propagates PUT, POST, DELETE, and supports
+      SLOs). Swift can be enabled by passing the option "protocol" with the
+      value "swift" in the configuration for a mapping.
+
+Bug fixes:
+
+    - Fixed a broken import, which prevented the daemon from starting.
+    - Restricted the requests Sessions to be used once per worker (as opposed to
+      being shared across workers).
+
 ## 0.1.1 (2017-03-22)
 
 Improvements:
