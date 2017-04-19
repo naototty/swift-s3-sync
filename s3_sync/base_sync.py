@@ -10,7 +10,7 @@ class BaseSync(object):
        propagate Swift objects and metadata to a remote endpoint.
     """
 
-    HTTP_CONN_POOL_SIZE = 10
+    HTTP_CONN_POOL_SIZE = 1
     SLO_WORKERS = 10
     SLO_QUEUE_SIZE = 100
     MB = 1024*1024

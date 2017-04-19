@@ -59,10 +59,10 @@ class SyncSwift(BaseSync):
                         self.remote_container, name,
                         query_string='multipart-manifest=get',
                         headers={'Range': 'bytes=0-0'})
-                    if headers['etag'] == metadata['etag']:
-                        if not self._is_meta_synced(metadata, headers):
-                            self._update_metadata(name, metadata)
-                        return
+                if headers['etag'] == metadata['etag']:
+                    if not self._is_meta_synced(metadata, headers):
+                        self._update_metadata(name, metadata)
+                    return
             except swiftclient.exceptions.ClientException as e:
                 if e.http_status != 404:
                     raise
