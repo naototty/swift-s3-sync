@@ -38,14 +38,10 @@ class TestSyncContainer(unittest.TestCase):
                 raise RuntimeError
 
     @mock.patch('s3_sync.sync_s3.boto3.session.Session')
-    @mock.patch(
-        's3_sync.sync_container.container_crawler.base_sync.InternalClient')
-    def setUp(self, mock_ic, mock_boto3):
-        self.mock_ic = mock.Mock()
+    def setUp(self, mock_boto3):
         self.mock_boto3_session = mock.Mock()
         self.mock_boto3_client = mock.Mock()
 
-        mock_ic.return_value = self.mock_ic
         mock_boto3.return_value = self.mock_boto3_session
         self.mock_boto3_session.client.return_value = self.mock_boto3_client
 
@@ -228,12 +224,7 @@ class TestSyncContainer(unittest.TestCase):
                                              self.sync_container._container))],
                     mock_exists.call_args_list)
 
-    @mock.patch(
-        's3_sync.sync_container.container_crawler.base_sync.InternalClient')
-    def test_s3_provider(self, mock_ic):
-        ic = mock.Mock()
-        mock_ic.return_value = ic
-
+    def test_s3_provider(self):
         defaults = {'aws_bucket': self.aws_bucket,
                     'aws_identity': 'identity',
                     'aws_secret': 'credential',
@@ -245,14 +236,9 @@ class TestSyncContainer(unittest.TestCase):
         for settings in test_settings:
             with mock.patch('s3_sync.sync_container.SyncS3') as mock_sync_s3:
                 SyncContainer(self.scratch_space, settings, max_conns=1)
-                mock_sync_s3.assert_called_once_with(ic, settings, 1)
+                mock_sync_s3.assert_called_once_with(settings, 1)
 
-    @mock.patch(
-        's3_sync.sync_container.container_crawler.base_sync.InternalClient')
-    def test_swift_provider(self, mock_ic):
-        ic = mock.Mock()
-        mock_ic.return_value = ic
-
+    def test_swift_provider(self):
         settings = {'aws_bucket': self.aws_bucket,
                     'aws_identity': 'identity',
                     'aws_secret': 'credential',
@@ -261,14 +247,9 @@ class TestSyncContainer(unittest.TestCase):
                     'protocol': 'swift'}
         with mock.patch('s3_sync.sync_container.SyncSwift') as mock_sync_swift:
             SyncContainer(self.scratch_space, settings, max_conns=1)
-            mock_sync_swift.assert_called_once_with(ic, settings, 1)
+            mock_sync_swift.assert_called_once_with(settings, 1)
 
-    @mock.patch(
-        's3_sync.sync_container.container_crawler.base_sync.InternalClient')
-    def test_unknown_provider(self, mock_ic):
-        ic = mock.Mock()
-        mock_ic.return_value = ic
-
+    def test_unknown_provider(self):
         settings = {'aws_bucket': self.aws_bucket,
                     'aws_identity': 'identity',
                     'aws_secret': 'credential',

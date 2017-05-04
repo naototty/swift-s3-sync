@@ -8,8 +8,8 @@ from .utils import (FileWrapper, check_slo, SWIFT_USER_META_PREFIX)
 
 
 class SyncSwift(BaseSync):
-    def __init__(self, swift_client, settings, max_conns=10):
-        super(SyncSwift, self).__init__(swift_client, settings, max_conns)
+    def __init__(self, settings, max_conns=10):
+        super(SyncSwift, self).__init__(settings, max_conns)
         self.remote_container = self.aws_bucket
 
     def _get_client_factory(self):
@@ -26,7 +26,7 @@ class SyncSwift(BaseSync):
                 authurl=endpoint, user=username, key=key, retries=3)
         return swift_client_factory
 
-    def upload_object(self, name, policy):
+    def upload_object(self, name, policy, internal_client):
         try:
             with self.client_pool.get_client() as client:
                 swift_client = client.client
@@ -43,7 +43,7 @@ class SyncSwift(BaseSync):
             'X-Newest': True
         }
 
-        metadata = self._swift_client.get_object_metadata(
+        metadata = internal_client.get_object_metadata(
             self.account, self.container, name, headers=swift_req_hdrs)
 
         if check_slo(metadata):
@@ -66,7 +66,7 @@ class SyncSwift(BaseSync):
             except swiftclient.exceptions.ClientException as e:
                 if e.http_status != 404:
                     raise
-            self._upload_slo(name, swift_req_hdrs)
+            self._upload_slo(name, swift_req_hdrs, internal_client)
             return
 
         if remote_meta and metadata['etag'] == remote_meta['etag']:
@@ -74,7 +74,7 @@ class SyncSwift(BaseSync):
                 self._update_metadata(name, metadata)
             return
 
-        wrapper_stream = FileWrapper(self._swift_client,
+        wrapper_stream = FileWrapper(internal_client,
                                      self.account,
                                      self.container,
                                      name,
@@ -128,8 +128,8 @@ class SyncSwift(BaseSync):
             swift_client.post_object(self.remote_container, name,
                                      self._get_user_headers(metadata))
 
-    def _upload_slo(self, name, swift_headers):
-        status, headers, body = self._swift_client.get_object(
+    def _upload_slo(self, name, swift_headers, internal_client):
+        status, headers, body = internal_client.get_object(
             self.account, self.container, name, headers=swift_headers)
         if status != 200:
             body.close()
@@ -144,7 +144,7 @@ class SyncSwift(BaseSync):
         for _ in range(0, self.SLO_WORKERS):
             workers.append(
                 worker_pool.spawn(self._upload_slo_worker, swift_headers,
-                                  work_queue))
+                                  work_queue, internal_client))
         for segment in manifest:
             work_queue.put(segment)
         work_queue.join()
@@ -178,7 +178,7 @@ class SyncSwift(BaseSync):
                                     headers=self._get_user_headers(headers),
                                     query_string='multipart-manifest=put')
 
-    def _upload_slo_worker(self, req_headers, work_queue):
+    def _upload_slo_worker(self, req_headers, work_queue, internal_client):
         errors = []
         while True:
             segment = work_queue.get()
@@ -187,7 +187,7 @@ class SyncSwift(BaseSync):
                 return errors
 
             try:
-                self._upload_segment(segment, req_headers)
+                self._upload_segment(segment, req_headers, internal_client)
             except:
                 errors.append(segment)
                 self.logger.error('Failed to upload segment %s: %s' % (
@@ -195,9 +195,9 @@ class SyncSwift(BaseSync):
             finally:
                 work_queue.task_done()
 
-    def _upload_segment(self, segment, req_headers):
+    def _upload_segment(self, segment, req_headers, internal_client):
         container, obj = segment['name'].split('/', 2)[1:]
-        wrapper = FileWrapper(self._swift_client, self.account, container, obj,
+        wrapper = FileWrapper(internal_client, self.account, container, obj,
                               req_headers)
         dest_container = self.remote_container + '_segments'
 

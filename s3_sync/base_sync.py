@@ -53,12 +53,11 @@ class BaseSync(object):
                     if client.acquire():
                         return client
 
-    def __init__(self, swift_client, settings, max_conns=10):
+    def __init__(self, settings, max_conns=10):
         self.settings = settings
         self.account = settings['account']
         self.container = settings['container']
         self.logger = logging.getLogger('s3-sync')
-        self._swift_client = swift_client
 
         # Due to the genesis of this project, the endpoint and bucket have the
         # "aws_" prefix, even though the endpoint may actually be a Swift

@@ -17,11 +17,9 @@ class SyncContainer(container_crawler.base_sync.BaseSync):
         self.aws_bucket = sync_settings['aws_bucket']
         provider_type = sync_settings.get('protocol', None)
         if not provider_type or provider_type == 's3':
-            self.provider = SyncS3(self._swift_client, sync_settings,
-                                   max_conns)
+            self.provider = SyncS3(sync_settings, max_conns)
         elif provider_type == 'swift':
-            self.provider = SyncSwift(self._swift_client, sync_settings,
-                                      max_conns)
+            self.provider = SyncSwift(sync_settings, max_conns)
         else:
             raise NotImplementedError()
 
@@ -67,9 +65,10 @@ class SyncContainer(container_crawler.base_sync.BaseSync):
             json.dump(status, f)
             f.truncate()
 
-    def handle(self, row):
+    def handle(self, row, swift_client):
         if row['deleted']:
-            self.provider.delete_object(row['name'])
+            self.provider.delete_object(row['name'], swift_client)
         else:
             self.provider.upload_object(row['name'],
-                                        row['storage_policy_index'])
+                                        row['storage_policy_index'],
+                                        swift_client)

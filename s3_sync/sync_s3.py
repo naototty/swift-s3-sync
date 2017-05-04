@@ -25,8 +25,8 @@ class SyncS3(BaseSync):
     CLOUD_SYNC_VERSION = '5.0'
     GOOGLE_UA_STRING = 'CloudSync/%s (GPN:SwiftStack)' % CLOUD_SYNC_VERSION
 
-    def __init__(self, swift_client, settings, max_conns=10):
-        super(SyncS3, self).__init__(swift_client, settings, max_conns)
+    def __init__(self, settings, max_conns=10):
+        super(SyncS3, self).__init__(settings, max_conns)
 
     def _google(self):
         return self.endpoint == self.GOOGLE_API
@@ -64,7 +64,7 @@ class SyncS3(BaseSync):
             return s3_client
         return boto_client_factory
 
-    def upload_object(self, swift_key, storage_policy_index):
+    def upload_object(self, swift_key, storage_policy_index, internal_client):
         s3_key = self.get_s3_name(swift_key)
         try:
             with self.client_pool.get_client() as boto_client:
@@ -81,12 +81,13 @@ class SyncS3(BaseSync):
             'X-Newest': True
         }
 
-        metadata = self._swift_client.get_object_metadata(
+        metadata = internal_client.get_object_metadata(
             self.account, self.container, swift_key, headers=swift_req_hdrs)
 
         self.logger.debug("Metadata: %s" % str(metadata))
         if check_slo(metadata):
-            self.upload_slo(swift_key, storage_policy_index, s3_meta)
+            self.upload_slo(swift_key, storage_policy_index, s3_meta,
+                            internal_client)
             return
 
         if s3_meta and self.check_etag(metadata['etag'], s3_meta['ETag']):
@@ -96,7 +97,7 @@ class SyncS3(BaseSync):
                 self.update_metadata(metadata, s3_key)
                 return
 
-        wrapper_stream = FileWrapper(self._swift_client,
+        wrapper_stream = FileWrapper(internal_client,
                                      self.account,
                                      self.container,
                                      swift_key,
@@ -111,14 +112,15 @@ class SyncS3(BaseSync):
                                  Metadata=wrapper_stream.get_s3_headers(),
                                  ContentLength=len(wrapper_stream))
 
-    def delete_object(self, swift_key):
+    def delete_object(self, swift_key, internal_client=None):
         s3_key = self.get_s3_name(swift_key)
         self.logger.debug('Deleting object %s' % s3_key)
         with self.client_pool.get_client() as boto_client:
             s3_client = boto_client.client
             s3_client.delete_object(Bucket=self.aws_bucket, Key=s3_key)
 
-    def upload_slo(self, swift_key, storage_policy_index, s3_meta):
+    def upload_slo(self, swift_key, storage_policy_index, s3_meta,
+                   internal_client):
         # Converts an SLO into a multipart upload. We use the segments as
         # is, for the part sizes.
         # NOTE: If the SLO segment is < 5MB and is not the last segment, the
@@ -133,7 +135,7 @@ class SyncS3(BaseSync):
             'X-Backend-Storage-Policy-Index': storage_policy_index,
             'X-Newest': True
         }
-        status, headers, body = self._swift_client.get_object(
+        status, headers, body = internal_client.get_object(
             self.account, self.container, swift_key, headers=swift_req_hdrs)
         if status != 200:
             body.close()
@@ -161,7 +163,8 @@ class SyncS3(BaseSync):
                         return
                     self.update_metadata(headers, s3_key)
                     return
-            self._upload_google_slo(manifest, headers, s3_key, swift_req_hdrs)
+            self._upload_google_slo(manifest, headers, s3_key, swift_req_hdrs,
+                                    internal_client)
             return
 
         expected_etag = get_slo_etag(manifest)
@@ -171,14 +174,16 @@ class SyncS3(BaseSync):
                 return
             elif not self.in_glacier(s3_meta):
                 self.update_slo_metadata(headers, manifest, s3_key,
-                                         swift_req_hdrs)
+                                         swift_req_hdrs, internal_client)
                 return
 
-        self._upload_slo(manifest, headers, s3_key, swift_req_hdrs)
+        self._upload_slo(manifest, headers, s3_key, swift_req_hdrs,
+                         internal_client)
 
-    def _upload_google_slo(self, manifest, metadata, s3_key, req_hdrs):
+    def _upload_google_slo(self, manifest, metadata, s3_key, req_hdrs,
+                           internal_client):
         slo_wrapper = SLOFileWrapper(
-            self._swift_client, self.account, manifest, metadata, req_hdrs)
+            internal_client, self.account, manifest, metadata, req_hdrs)
         with self.client_pool.get_client() as boto_client:
             s3_client = boto_client.client
             s3_client.put_object(Bucket=self.aws_bucket,
@@ -217,7 +222,8 @@ class SyncS3(BaseSync):
                 return False
         return True
 
-    def _upload_slo(self, manifest, object_meta, s3_key, req_headers):
+    def _upload_slo(self, manifest, object_meta, s3_key, req_headers,
+                    internal_client):
         with self.client_pool.get_client() as boto_client:
             s3_client = boto_client.client
             multipart_resp = s3_client.create_multipart_upload(
@@ -232,7 +238,8 @@ class SyncS3(BaseSync):
         for _ in range(0, self.SLO_WORKERS):
             workers.append(
                 worker_pool.spawn(self._upload_part_worker, upload_id, s3_key,
-                                  req_headers, work_queue, len(manifest)))
+                                  req_headers, work_queue, len(manifest),
+                                  internal_client))
         for segment_number, segment in enumerate(manifest):
             work_queue.put((segment_number + 1, segment))
 
@@ -278,7 +285,7 @@ class SyncS3(BaseSync):
                 Bucket=self.aws_bucket, Key=s3_key, UploadId=upload_id)
 
     def _upload_part_worker(self, upload_id, s3_key, req_headers, queue,
-                            part_count):
+                            part_count, internal_client):
         errors = []
         while True:
             work = queue.get()
@@ -289,7 +296,7 @@ class SyncS3(BaseSync):
             try:
                 part_number, segment = work
                 container, obj = segment['name'].split('/', 2)[1:]
-                wrapper = FileWrapper(self._swift_client, self.account,
+                wrapper = FileWrapper(internal_client, self.account,
                                       container, obj, req_headers)
 
                 with self.client_pool.get_client() as boto_client:
@@ -325,7 +332,8 @@ class SyncS3(BaseSync):
         prefix = hex(long(md5_hash, 16) % self.PREFIX_SPACE)[2:-1]
         return '%s/%s' % (prefix, self._full_name(key))
 
-    def update_slo_metadata(self, swift_meta, manifest, s3_key, req_headers):
+    def update_slo_metadata(self, swift_meta, manifest, s3_key, req_headers,
+                            internal_client):
         # For large objects, we should use the multipart copy, which means
         # creating a new multipart upload, with copy-parts
         # NOTE: if we ever stich MPU objects, we need to replicate the
@@ -342,7 +350,7 @@ class SyncS3(BaseSync):
             offset = 0
             for part_number, segment in enumerate(manifest):
                 container, obj = segment['name'].split('/', 2)[1:]
-                segment_meta = self._swift_client.get_object_metadata(
+                segment_meta = internal_client.get_object_metadata(
                     self.account, container, obj, req_headers)
                 length = int(segment_meta['content-length'])
                 resp = s3_client.upload_part_copy(

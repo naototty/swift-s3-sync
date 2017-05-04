@@ -14,7 +14,6 @@ import unittest
 class TestSyncS3(unittest.TestCase):
     @mock.patch('s3_sync.sync_s3.boto3.session.Session')
     def setUp(self, mock_boto3):
-        self.mock_ic = mock.Mock()
         self.mock_boto3_session = mock.Mock()
         self.mock_boto3_client = mock.Mock()
 
@@ -23,8 +22,7 @@ class TestSyncS3(unittest.TestCase):
 
         self.aws_bucket = 'bucket'
         self.scratch_space = 'scratch'
-        self.sync_s3 = SyncS3(self.mock_ic,
-                              {'aws_bucket': self.aws_bucket,
+        self.sync_s3 = SyncS3({'aws_bucket': self.aws_bucket,
                                'aws_identity': 'identity',
                                'aws_secret': 'credential',
                                'account': 'account',
@@ -45,11 +43,12 @@ class TestSyncS3(unittest.TestCase):
             {'Error': {'Code': 404}}, 'HEAD')
         self.sync_s3.check_slo = mock.Mock()
         self.sync_s3.check_slo.return_value = False
-        self.mock_ic.get_object_metadata.return_value = {}
+        mock_ic = mock.Mock()
+        mock_ic.get_object_metadata.return_value = {}
 
-        self.sync_s3.upload_object(key, storage_policy)
+        self.sync_s3.upload_object(key, storage_policy, mock_ic)
 
-        mock_file_wrapper.assert_called_with(self.mock_ic,
+        mock_file_wrapper.assert_called_with(mock_ic,
                                              self.sync_s3.account,
                                              self.sync_s3.container,
                                              key, swift_req_headers)
@@ -76,11 +75,12 @@ class TestSyncS3(unittest.TestCase):
             {'Error': {'Code': 404}}, 'HEAD')
         self.sync_s3.check_slo = mock.Mock()
         self.sync_s3.check_slo.return_value = False
-        self.mock_ic.get_object_metadata.return_value = {}
+        mock_ic = mock.Mock()
+        mock_ic.get_object_metadata.return_value = {}
 
-        self.sync_s3.upload_object(key, storage_policy)
+        self.sync_s3.upload_object(key, storage_policy, mock_ic)
 
-        mock_file_wrapper.assert_called_with(self.mock_ic,
+        mock_file_wrapper.assert_called_with(mock_ic,
                                              self.sync_s3.account,
                                              self.sync_s3.container,
                                              key, swift_req_headers)
@@ -99,13 +99,14 @@ class TestSyncS3(unittest.TestCase):
         swift_object_meta = {'x-object-meta-new': 'new',
                              'x-object-meta-old': 'updated',
                              'etag': etag}
-        self.mock_ic.get_object_metadata.return_value = swift_object_meta
+        mock_ic = mock.Mock()
+        mock_ic.get_object_metadata.return_value = swift_object_meta
         self.mock_boto3_client.head_object.return_value = {
             'Metadata': {'old': 'old'},
             'ETag': '"%s"' % etag
         }
 
-        self.sync_s3.upload_object(key, storage_policy)
+        self.sync_s3.upload_object(key, storage_policy, mock_ic)
 
         self.mock_boto3_client.copy_object.assert_called_with(
             CopySource={'Bucket': self.aws_bucket,
@@ -125,7 +126,8 @@ class TestSyncS3(unittest.TestCase):
         swift_object_meta = {'x-object-meta-new': 'new',
                              'x-object-meta-old': 'updated',
                              'etag': etag}
-        self.mock_ic.get_object_metadata.return_value = swift_object_meta
+        mock_ic = mock.Mock()
+        mock_ic.get_object_metadata.return_value = swift_object_meta
         self.mock_boto3_client.head_object.return_value = {
             'Metadata': {'old': 'old'},
             'ETag': '"%s"' % etag,
@@ -137,9 +139,9 @@ class TestSyncS3(unittest.TestCase):
         wrapper.get_s3_headers.return_value = {'new': 'new', 'old': 'updated'}
         mock_file_wrapper.return_value = wrapper
 
-        self.sync_s3.upload_object(key, storage_policy)
+        self.sync_s3.upload_object(key, storage_policy, mock_ic)
 
-        mock_file_wrapper.assert_called_with(self.mock_ic,
+        mock_file_wrapper.assert_called_with(mock_ic,
                                              self.sync_s3.account,
                                              self.sync_s3.container,
                                              key, swift_req_headers)
@@ -158,7 +160,8 @@ class TestSyncS3(unittest.TestCase):
         swift_object_meta = {'x-object-meta-new': 'new',
                              'x-object-meta-old': 'updated',
                              'etag': 2}
-        self.mock_ic.get_object_metadata.return_value = swift_object_meta
+        mock_ic = mock.Mock()
+        mock_ic.get_object_metadata.return_value = swift_object_meta
         self.mock_boto3_client.head_object.return_value = {
             'Metadata': {'old': 'old'},
             'ETag': 1
@@ -170,7 +173,7 @@ class TestSyncS3(unittest.TestCase):
         wrapper.__len__ = lambda s: 42
         mock_file_wrapper.return_value = wrapper
 
-        self.sync_s3.upload_object(key, storage_policy)
+        self.sync_s3.upload_object(key, storage_policy, mock_ic)
 
         self.mock_boto3_client.put_object.assert_called_with(
             Bucket=self.aws_bucket,
@@ -185,13 +188,14 @@ class TestSyncS3(unittest.TestCase):
         etag = '1234'
         swift_object_meta = {'x-object-meta-foo': 'foo',
                              'etag': etag}
-        self.mock_ic.get_object_metadata.return_value = swift_object_meta
+        mock_ic = mock.Mock()
+        mock_ic.get_object_metadata.return_value = swift_object_meta
         self.mock_boto3_client.head_object.return_value = {
             'Metadata': {'foo': 'foo'},
             'ETag': '"%s"' % etag
         }
 
-        self.sync_s3.upload_object(key, storage_policy)
+        self.sync_s3.upload_object(key, storage_policy, mock_ic)
 
         self.mock_boto3_client.copy_object.assert_not_called()
         self.mock_boto3_client.put_object.assert_not_called()
@@ -209,11 +213,11 @@ class TestSyncS3(unittest.TestCase):
         test_data = [('AUTH_test', 'container', 'key'),
                      ('swift', 'stuff', 'my/key')]
         for account, container, key in test_data:
-            sync = SyncS3(None, {'account': account,
-                                 'container': container,
-                                 'aws_bucket': 'bucket',
-                                 'aws_identity': 'identity',
-                                 'aws_secret': 'secret'})
+            sync = SyncS3({'account': account,
+                           'container': container,
+                           'aws_bucket': 'bucket',
+                           'aws_identity': 'identity',
+                           'aws_secret': 'secret'})
             # Verify that the get_s3_name function is deterministic
             self.assertEqual(sync.get_s3_name(key),
                              sync.get_s3_name(key))
@@ -232,8 +236,7 @@ class TestSyncS3(unittest.TestCase):
     def test_signature_version(self, session_mock):
         config_class = 's3_sync.sync_s3.boto3.session.Config'
         with mock.patch(config_class) as conf_mock:
-            SyncS3(None,
-                   {'aws_bucket': self.aws_bucket,
+            SyncS3({'aws_bucket': self.aws_bucket,
                     'aws_identity': 'identity',
                     'aws_secret': 'credential',
                     'account': 'account',
@@ -242,8 +245,7 @@ class TestSyncS3(unittest.TestCase):
                                               s3={'aws_chunked': True})
 
         with mock.patch(config_class) as conf_mock:
-            SyncS3(None,
-                   {'aws_bucket': self.aws_bucket,
+            SyncS3({'aws_bucket': self.aws_bucket,
                     'aws_identity': 'identity',
                     'aws_secret': 'credential',
                     'account': 'account',
@@ -275,18 +277,19 @@ class TestSyncS3(unittest.TestCase):
                         FakeStream(content=json.dumps(manifest)))
             raise RuntimeError('Unknown key!')
 
-        self.mock_ic.get_object_metadata.side_effect = get_metadata
-        self.mock_ic.get_object.side_effect = get_object
+        mock_ic = mock.Mock()
+        mock_ic.get_object_metadata.side_effect = get_metadata
+        mock_ic.get_object.side_effect = get_object
         self.sync_s3._upload_slo = mock.Mock()
 
-        self.sync_s3.upload_object(slo_key, storage_policy)
+        self.sync_s3.upload_object(slo_key, storage_policy, mock_ic)
 
         self.mock_boto3_client.head_object.assert_called_once_with(
             Bucket=self.aws_bucket,
             Key=self.sync_s3.get_s3_name(slo_key))
-        self.mock_ic.get_object_metadata.assert_called_once_with(
+        mock_ic.get_object_metadata.assert_called_once_with(
             'account', 'container', slo_key, headers=swift_req_headers)
-        self.mock_ic.get_object.assert_called_once_with(
+        mock_ic.get_object.assert_called_once_with(
             'account', 'container', slo_key, headers=swift_req_headers)
 
     @mock.patch('s3_sync.sync_s3.boto3.session.Session')
@@ -297,8 +300,7 @@ class TestSyncS3(unittest.TestCase):
         client = mock.Mock()
         session.client.return_value = client
 
-        sync = SyncS3(None,
-                      {'aws_bucket': self.aws_bucket,
+        sync = SyncS3({'aws_bucket': self.aws_bucket,
                        'aws_identity': 'identity',
                        'aws_secret': 'credential',
                        'account': 'account',
@@ -340,7 +342,7 @@ class TestSyncS3(unittest.TestCase):
                 client = mock.Mock()
                 session.client.return_value = client
 
-                sync = SyncS3(None, settings)
+                sync = SyncS3(settings)
                 session.client.assert_has_calls(
                     [mock.call('s3',
                                config=mock.ANY,
@@ -389,10 +391,11 @@ class TestSyncS3(unittest.TestCase):
                         FakeStream(content=json.dumps(manifest)))
             raise RuntimeError('Unknown key!')
 
-        self.mock_ic.get_object_metadata.side_effect = get_metadata
-        self.mock_ic.get_object.side_effect = get_object
+        mock_ic = mock.Mock()
+        mock_ic.get_object_metadata.side_effect = get_metadata
+        mock_ic.get_object.side_effect = get_object
 
-        self.sync_s3.upload_object(slo_key, storage_policy)
+        self.sync_s3.upload_object(slo_key, storage_policy, mock_ic)
 
         self.mock_boto3_client.head_object.assert_called_once_with(
             Bucket=self.aws_bucket,
@@ -408,9 +411,9 @@ class TestSyncS3(unittest.TestCase):
             kwargs['Metadata'])
         self.assertEqual(utils.SLOFileWrapper, type(kwargs['Body']))
 
-        self.mock_ic.get_object_metadata.assert_called_once_with(
+        mock_ic.get_object_metadata.assert_called_once_with(
             'account', 'container', slo_key, headers=swift_req_headers)
-        self.mock_ic.get_object.assert_called_once_with(
+        mock_ic.get_object.assert_called_once_with(
             'account', 'container', slo_key, headers=swift_req_headers)
 
     @mock.patch('s3_sync.sync_s3.FileWrapper')
@@ -443,7 +446,9 @@ class TestSyncS3(unittest.TestCase):
         self.mock_boto3_client.upload_part.side_effect = upload_part
         mock_file_wrapper.return_value = fake_body
 
-        self.sync_s3._upload_slo(manifest, slo_meta, s3_key, swift_req_headers)
+        mock_ic = mock.Mock()
+        self.sync_s3._upload_slo(manifest, slo_meta, s3_key, swift_req_headers,
+                                 mock_ic)
 
         self.mock_boto3_client.create_multipart_upload.assert_called_once_with(
             Bucket=self.aws_bucket,
@@ -497,19 +502,20 @@ class TestSyncS3(unittest.TestCase):
             utils.SLO_HEADER: 'True',
             'x-object-meta-new-key': 'foo'
         }
-        self.mock_ic.get_object_metadata.return_value = slo_meta
-        self.mock_ic.get_object.return_value = (
+        mock_ic = mock.Mock()
+        mock_ic.get_object_metadata.return_value = slo_meta
+        mock_ic.get_object.return_value = (
             200, slo_meta, FakeStream(content=json.dumps(manifest)))
 
-        self.sync_s3.upload_object(slo_key, storage_policy)
+        self.sync_s3.upload_object(slo_key, storage_policy, mock_ic)
 
         self.sync_s3.update_slo_metadata.assert_called_once_with(
             slo_meta, manifest, self.sync_s3.get_s3_name(slo_key),
-            swift_req_headers)
+            swift_req_headers, mock_ic)
         self.assertEqual(0, self.sync_s3._upload_slo.call_count)
-        self.mock_ic.get_object_metadata.assert_called_once_with(
+        mock_ic.get_object_metadata.assert_called_once_with(
             'account', 'container', slo_key, headers=swift_req_headers)
-        self.mock_ic.get_object.assert_called_once_with(
+        mock_ic.get_object.assert_called_once_with(
             'account', 'container', slo_key, headers=swift_req_headers)
 
     @mock.patch('s3_sync.sync_s3.get_slo_etag')
@@ -536,19 +542,20 @@ class TestSyncS3(unittest.TestCase):
             utils.SLO_HEADER: 'True',
             'x-object-meta-new-key': 'foo'
         }
-        self.mock_ic.get_object_metadata.return_value = slo_meta
-        self.mock_ic.get_object.return_value = (
+        mock_ic = mock.Mock()
+        mock_ic.get_object_metadata.return_value = slo_meta
+        mock_ic.get_object.return_value = (
             200, slo_meta, FakeStream(content=json.dumps(manifest)))
 
-        self.sync_s3.upload_object(slo_key, storage_policy)
+        self.sync_s3.upload_object(slo_key, storage_policy, mock_ic)
 
         self.assertEqual(0, self.sync_s3.update_slo_metadata.call_count)
         self.sync_s3._upload_slo.assert_called_once_with(
             manifest, slo_meta, self.sync_s3.get_s3_name(slo_key),
-            swift_req_headers)
-        self.mock_ic.get_object_metadata.assert_called_once_with(
+            swift_req_headers, mock_ic)
+        mock_ic.get_object_metadata.assert_called_once_with(
             'account', 'container', slo_key, headers=swift_req_headers)
-        self.mock_ic.get_object.assert_called_once_with(
+        mock_ic.get_object.assert_called_once_with(
             'account', 'container', slo_key, headers=swift_req_headers)
 
     @mock.patch('s3_sync.sync_s3.get_slo_etag')
@@ -572,17 +579,19 @@ class TestSyncS3(unittest.TestCase):
             utils.SLO_HEADER: 'True',
             'x-object-meta-new-key': 'foo'
         }
-        self.mock_ic.get_object_metadata.return_value = slo_meta
-        self.mock_ic.get_object.return_value = (
+
+        mock_ic = mock.Mock()
+        mock_ic.get_object_metadata.return_value = slo_meta
+        mock_ic.get_object.return_value = (
             200, slo_meta, FakeStream(content=json.dumps(manifest)))
 
-        self.sync_s3.upload_object(slo_key, storage_policy)
+        self.sync_s3.upload_object(slo_key, storage_policy, mock_ic)
 
         self.assertEqual(0, self.sync_s3.update_slo_metadata.call_count)
         self.assertEqual(0, self.sync_s3._upload_slo.call_count)
-        self.mock_ic.get_object_metadata.assert_called_once_with(
+        mock_ic.get_object_metadata.assert_called_once_with(
             'account', 'container', slo_key, headers=swift_req_headers)
-        self.mock_ic.get_object.assert_called_once_with(
+        mock_ic.get_object.assert_called_once_with(
             'account', 'container', slo_key, headers=swift_req_headers)
 
     def test_slo_metadata_update(self):
@@ -601,7 +610,8 @@ class TestSyncS3(unittest.TestCase):
 
         def get_object_metadata(account, container, key, headers):
             return {'content-length': segment_lengths[int(key[-1]) - 1]}
-        self.mock_ic.get_object_metadata.side_effect = get_object_metadata
+        mock_ic = mock.Mock()
+        mock_ic.get_object_metadata.side_effect = get_object_metadata
 
         self.mock_boto3_client.create_multipart_upload.return_value = {
             'UploadId': 'mpu-upload'}
@@ -615,7 +625,8 @@ class TestSyncS3(unittest.TestCase):
 
         self.mock_boto3_client.upload_part_copy.side_effect = upload_part_copy
 
-        self.sync_s3.update_slo_metadata(slo_meta, manifest, s3_key, {})
+        self.sync_s3.update_slo_metadata(slo_meta, manifest, s3_key, {},
+                                         mock_ic)
 
         self.mock_boto3_client.create_multipart_upload.assert_called_once_with(
             Bucket=self.aws_bucket, Key=s3_key,
