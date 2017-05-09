@@ -1,3 +1,9 @@
+## 0.1.3 (2017-05-08)
+
+Improvement:
+
+    - Support new version of the ContainerCrawler (0.0.3).
+
 ## 0.1.2 (2017-04-19)
 
 Features:
