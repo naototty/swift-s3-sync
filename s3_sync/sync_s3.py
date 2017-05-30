@@ -8,6 +8,7 @@ import traceback
 import urllib
 
 from swift.common.utils import FileLikeIter
+from swift.common.internal_client import UnexpectedResponse
 from .base_sync import BaseSync
 from .utils import (convert_to_s3_headers, FileWrapper, SLOFileWrapper,
                     get_slo_etag, check_slo, SLO_ETAG_FIELD, SLO_HEADER,
@@ -81,8 +82,14 @@ class SyncS3(BaseSync):
             'X-Newest': True
         }
 
-        metadata = internal_client.get_object_metadata(
-            self.account, self.container, swift_key, headers=swift_req_hdrs)
+        try:
+            metadata = internal_client.get_object_metadata(
+                self.account, self.container, swift_key,
+                headers=swift_req_hdrs)
+        except UnexpectedResponse as e:
+            if '404 Not Found' in e.message:
+                return
+            raise
 
         self.logger.debug("Metadata: %s" % str(metadata))
         if check_slo(metadata):

@@ -3,6 +3,7 @@ import json
 import swiftclient
 import traceback
 from swift.common.utils import FileLikeIter
+from swift.common.internal_client import UnexpectedResponse
 from .base_sync import BaseSync
 from .utils import (FileWrapper, check_slo, SWIFT_USER_META_PREFIX)
 
@@ -43,8 +44,13 @@ class SyncSwift(BaseSync):
             'X-Newest': True
         }
 
-        metadata = internal_client.get_object_metadata(
-            self.account, self.container, name, headers=swift_req_hdrs)
+        try:
+            metadata = internal_client.get_object_metadata(
+                self.account, self.container, name, headers=swift_req_hdrs)
+        except UnexpectedResponse as e:
+            if '404 Not Found' in e.message:
+                return
+            raise
 
         if check_slo(metadata):
             try:
