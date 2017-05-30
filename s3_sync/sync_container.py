@@ -5,7 +5,11 @@ import json
 import logging
 import os
 import os.path
+from swift.common.utils import decode_timestamps, Timestamp
+import time
+
 import container_crawler.base_sync
+from container_crawler import RetryError
 from .sync_s3 import SyncS3
 from .sync_swift import SyncSwift
 
@@ -15,6 +19,9 @@ class SyncContainer(container_crawler.base_sync.BaseSync):
         super(SyncContainer, self).__init__(status_dir, sync_settings)
         self.logger = logging.getLogger('s3-sync')
         self.aws_bucket = sync_settings['aws_bucket']
+        self.copy_after = int(sync_settings.get('copy_after', 0))
+        self.retain_copy = sync_settings.get('retain_local', True)
+        self.propagate_delete = sync_settings.get('propagate_delete', True)
         provider_type = sync_settings.get('protocol', None)
         if not provider_type or provider_type == 's3':
             self.provider = SyncS3(sync_settings, max_conns)
@@ -66,9 +73,23 @@ class SyncContainer(container_crawler.base_sync.BaseSync):
             f.truncate()
 
     def handle(self, row, swift_client):
-        if row['deleted']:
+        if row['deleted'] and self.propagate_delete:
             self.provider.delete_object(row['name'], swift_client)
         else:
+            # The metadata timestamp should always be the latest timestamp
+            _, _, meta_ts = decode_timestamps(row['created_at'])
+            if time.time() < self.copy_after + meta_ts.timestamp:
+                raise RetryError('Object is not yet eligible for archive')
             self.provider.upload_object(row['name'],
                                         row['storage_policy_index'],
                                         swift_client)
+
+            if not self.retain_copy:
+                # NOTE: We rely on the DELETE object X-Timestamp header to
+                # mitigate races where the object may be overwritten. We
+                # increment the offset to ensure that we never remove new
+                # customer data.
+                delete_ts = Timestamp(meta_ts, offset=meta_ts.offset + 1)
+                swift_client.delete_object(
+                    self._account, self._container, row['name'],
+                    headers={'X-Timestamp': delete_ts.internal})
