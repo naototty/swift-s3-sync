@@ -1,3 +1,22 @@
+## 0.1.4 (2017-05-30)
+
+Features:
+
+    - Allow fine(r) grained control of object movement through `copy_after`,
+      `retain_local`, and `propagate_delete` options. `copy_after` defers action
+      on the rows until after a specified number of seconds has expired since
+      the last object update; `retain_local` determines whether the object
+      should be removed after copying to the remote store; `propagate_delete`
+      controls whether DELETE requests against the cluster should show up on the
+      remote endpoint. For example, one could configure Cloud Sync in archive
+      mode, by turning off DELETE propagation and local copy retention, while
+      defering the copy action for a set number of days until the archival date.
+
+Bug fixes:
+
+    - A missing object should not generate an exception -- and stop Cloud Sync
+      -- when attempting to upload. The exception will now be ignored.
+
 ## 0.1.3 (2017-05-08)
 
 Improvement:
