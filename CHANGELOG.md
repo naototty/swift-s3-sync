@@ -1,3 +1,12 @@
+## 0.1.5 (2017-06-01)
+
+Bug fixes:
+
+    - Handle deleted objects when DELETE propagation is turned off correctly
+      (should be a NOOP, but previously fell through to an attempted upload).
+    - Handle "409 Conflict" if attempting to DELETE an object, but it was
+      actually already replaced with a new Timestamp.
+
 ## 0.1.4 (2017-05-30)
 
 Features:
