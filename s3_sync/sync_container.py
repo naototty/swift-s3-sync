@@ -6,6 +6,7 @@ import logging
 import os
 import os.path
 from swift.common.utils import decode_timestamps, Timestamp
+from swift.common.internal_client import UnexpectedResponse
 import time
 
 import container_crawler.base_sync
@@ -89,7 +90,13 @@ class SyncContainer(container_crawler.base_sync.BaseSync):
                 # mitigate races where the object may be overwritten. We
                 # increment the offset to ensure that we never remove new
                 # customer data.
+                self.logger.debug("Creating a new TS: %f %f" % (
+                    meta_ts.offset, meta_ts.timestamp))
                 delete_ts = Timestamp(meta_ts, offset=meta_ts.offset + 1)
-                swift_client.delete_object(
-                    self._account, self._container, row['name'],
-                    headers={'X-Timestamp': delete_ts.internal})
+                try:
+                    swift_client.delete_object(
+                        self._account, self._container, row['name'],
+                        headers={'X-Timestamp': delete_ts.internal})
+                except UnexpectedResponse as e:
+                    if '409 Conflict' in e.message:
+                        pass
