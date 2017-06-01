@@ -74,8 +74,9 @@ class SyncContainer(container_crawler.base_sync.BaseSync):
             f.truncate()
 
     def handle(self, row, swift_client):
-        if row['deleted'] and self.propagate_delete:
-            self.provider.delete_object(row['name'], swift_client)
+        if row['deleted']:
+            if self.propagate_delete:
+                self.provider.delete_object(row['name'], swift_client)
         else:
             # The metadata timestamp should always be the latest timestamp
             _, _, meta_ts = decode_timestamps(row['created_at'])
