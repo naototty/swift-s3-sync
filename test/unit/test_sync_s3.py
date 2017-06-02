@@ -61,6 +61,86 @@ class TestSyncS3(unittest.TestCase):
             ContentLength=0)
 
     @mock.patch('s3_sync.sync_s3.FileWrapper')
+    def test_upload_object_with_encryption(self, mock_file_wrapper):
+        key = 'key'
+        storage_policy = 42
+        swift_req_headers = {'X-Backend-Storage-Policy-Index': storage_policy,
+                             'X-Newest': True}
+
+        self.sync_s3.encryption = True
+
+        wrapper = mock.Mock()
+        wrapper.__len__ = lambda s: 0
+        wrapper.get_s3_headers.return_value = {}
+        mock_file_wrapper.return_value = wrapper
+        self.mock_boto3_client.head_object.side_effect = ClientError(
+            {'Error': {'Code': 404}}, 'HEAD')
+        self.sync_s3.check_slo = mock.Mock()
+        self.sync_s3.check_slo.return_value = False
+        mock_ic = mock.Mock()
+        mock_ic.get_object_metadata.return_value = {}
+
+        self.sync_s3.upload_object(key, storage_policy, mock_ic)
+
+        mock_file_wrapper.assert_called_with(mock_ic,
+                                             self.sync_s3.account,
+                                             self.sync_s3.container,
+                                             key, swift_req_headers)
+
+        self.mock_boto3_client.put_object.assert_called_with(
+            Bucket=self.aws_bucket,
+            Key=self.sync_s3.get_s3_name(key),
+            Body=wrapper,
+            Metadata={},
+            ContentLength=0,
+            ServerSideEncryption='AES256')
+
+    @mock.patch('s3_sync.sync_s3.FileWrapper')
+    def test_google_upload_encryption(self, mock_file_wrapper):
+        key = 'key'
+        storage_policy = 42
+        swift_req_headers = {'X-Backend-Storage-Policy-Index': storage_policy,
+                             'X-Newest': True}
+
+        self.sync_s3.encryption = True
+        self.sync_s3._google = lambda: True
+
+        wrapper = mock.Mock()
+        wrapper.__len__ = lambda s: 0
+        wrapper.get_s3_headers.return_value = {}
+        mock_file_wrapper.return_value = wrapper
+        self.mock_boto3_client.head_object.side_effect = ClientError(
+            {'Error': {'Code': 404}}, 'HEAD')
+        self.sync_s3.check_slo = mock.Mock()
+        self.sync_s3.check_slo.return_value = False
+        mock_ic = mock.Mock()
+        mock_ic.get_object_metadata.return_value = {}
+
+        self.sync_s3.upload_object(key, storage_policy, mock_ic)
+
+        mock_file_wrapper.assert_called_with(mock_ic,
+                                             self.sync_s3.account,
+                                             self.sync_s3.container,
+                                             key, swift_req_headers)
+
+        self.mock_boto3_client.put_object.assert_called_with(
+            Bucket=self.aws_bucket,
+            Key=self.sync_s3.get_s3_name(key),
+            Body=wrapper,
+            Metadata={},
+            ContentLength=0)
+
+    @mock.patch('s3_sync.sync_s3.boto3.session.Session')
+    def test_encryption_option(self, mock_session):
+        sync_s3 = SyncS3({'aws_bucket': 'bucket',
+                          'aws_identity': 'id',
+                          'aws_secret': 'key',
+                          'account': 'account',
+                          'container': 'container',
+                          'encryption': True})
+        self.assertTrue(sync_s3.encryption)
+
+    @mock.patch('s3_sync.sync_s3.FileWrapper')
     def test_upload_unicode_object_name(self, mock_file_wrapper):
         key = 'monkey-\xf0\x9f\x90\xb5'
         storage_policy = 42
@@ -116,6 +196,57 @@ class TestSyncS3(unittest.TestCase):
             Key=self.sync_s3.get_s3_name(key),
             Metadata={'new': 'new', 'old': 'updated'})
 
+    def test_upload_changed_meta_encryption(self):
+        key = 'key'
+        storage_policy = 42
+        etag = '1234'
+        swift_object_meta = {'x-object-meta-new': 'new',
+                             'x-object-meta-old': 'updated',
+                             'etag': etag}
+        mock_ic = mock.Mock()
+        mock_ic.get_object_metadata.return_value = swift_object_meta
+        self.mock_boto3_client.head_object.return_value = {
+            'Metadata': {'old': 'old'},
+            'ETag': '"%s"' % etag
+        }
+        self.sync_s3.encryption = True
+
+        self.sync_s3.upload_object(key, storage_policy, mock_ic)
+
+        self.mock_boto3_client.copy_object.assert_called_with(
+            CopySource={'Bucket': self.aws_bucket,
+                        'Key': self.sync_s3.get_s3_name(key)},
+            MetadataDirective='REPLACE',
+            Bucket=self.aws_bucket,
+            Key=self.sync_s3.get_s3_name(key),
+            Metadata={'new': 'new', 'old': 'updated'},
+            ServerSideEncryption='AES256')
+
+    def test_upload_changed_meta_google_encryption(self):
+        key = 'key'
+        storage_policy = 42
+        etag = '1234'
+        swift_object_meta = {'x-object-meta-new': 'new',
+                             'x-object-meta-old': 'updated',
+                             'etag': etag}
+        mock_ic = mock.Mock()
+        mock_ic.get_object_metadata.return_value = swift_object_meta
+        self.mock_boto3_client.head_object.return_value = {
+            'Metadata': {'old': 'old'},
+            'ETag': '"%s"' % etag
+        }
+        self.sync_s3.encryption = True
+        self.sync_s3._google = lambda: True
+
+        self.sync_s3.upload_object(key, storage_policy, mock_ic)
+
+        self.mock_boto3_client.copy_object.assert_called_with(
+            CopySource={'Bucket': self.aws_bucket,
+                        'Key': self.sync_s3.get_s3_name(key)},
+            MetadataDirective='REPLACE',
+            Bucket=self.aws_bucket,
+            Key=self.sync_s3.get_s3_name(key),
+            Metadata={'new': 'new', 'old': 'updated'})
     @mock.patch('s3_sync.sync_s3.FileWrapper')
     def test_upload_changed_meta_glacier(self, mock_file_wrapper):
         key = 'key'
@@ -479,6 +610,42 @@ class TestSyncS3(unittest.TestCase):
                 ]}
             )
 
+    @mock.patch('s3_sync.sync_s3.FileWrapper')
+    def test_internal_slo_upload_encryption(self, mock_file_wrapper):
+        slo_key = 'slo-object'
+        slo_meta = {'x-object-meta-foo': 'bar'}
+        s3_key = self.sync_s3.get_s3_name(slo_key)
+        storage_policy = 42
+        swift_req_headers = {'X-Backend-Storage-Policy-Index': storage_policy,
+                             'X-Newest': True}
+        manifest = [{'name': '/segment_container/slo-object/part1',
+                     'hash': 'deadbeef',
+                     'bytes': 100}]
+        fake_body = FakeStream(5*SyncS3.MB)
+
+        self.mock_boto3_client.create_multipart_upload.return_value = {
+            'UploadId': 'mpu-key-for-slo'}
+
+        def upload_part(**kwargs):
+            if kwargs['PartNumber'] == 1:
+                return {'ETag': '"deadbeef"'}
+            else:
+                raise RuntimeError('Unknown call to upload part')
+
+        self.mock_boto3_client.upload_part.side_effect = upload_part
+        mock_file_wrapper.return_value = fake_body
+
+        mock_ic = mock.Mock()
+        self.sync_s3.encryption = True
+        self.sync_s3._upload_slo(manifest, slo_meta, s3_key, swift_req_headers,
+                                 mock_ic)
+
+        self.mock_boto3_client.create_multipart_upload.assert_called_once_with(
+            Bucket=self.aws_bucket,
+            Key=self.sync_s3.get_s3_name(slo_key),
+            Metadata={'foo': 'bar'},
+            ServerSideEncryption='AES256')
+
     @mock.patch('s3_sync.sync_s3.get_slo_etag')
     def test_slo_meta_changed(self, mock_get_slo_etag):
         slo_key = 'slo-object'
@@ -650,6 +817,42 @@ class TestSyncS3(unittest.TestCase):
                                         {'PartNumber': 1, 'ETag': 'abcdef'},
                                         {'PartNumber': 2, 'ETag': 'fedcba'}
                                      ]})
+
+    def test_slo_metadata_update_encryption(self):
+        slo_meta = {
+            utils.SLO_HEADER: 'True',
+            'x-object-meta-new-key': 'foo',
+            'x-object-meta-other-key': 'bar'
+        }
+        manifest = [
+            {'name': '/segments/slo-object/part1',
+             'hash': 'abcdef'}]
+        s3_key = self.sync_s3.get_s3_name('slo-object')
+        segment_lengths = [12*SyncS3.MB, 14*SyncS3.MB]
+
+        def get_object_metadata(account, container, key, headers):
+            return {'content-length': segment_lengths[int(key[-1]) - 1]}
+        mock_ic = mock.Mock()
+        mock_ic.get_object_metadata.side_effect = get_object_metadata
+
+        self.mock_boto3_client.create_multipart_upload.return_value = {
+            'UploadId': 'mpu-upload'}
+
+        def upload_part_copy(**kwargs):
+            if kwargs['PartNumber'] == 1:
+                return {'CopyPartResult': {'ETag': '"abcdef"'}}
+            raise RuntimeError('Invalid part!')
+
+        self.mock_boto3_client.upload_part_copy.side_effect = upload_part_copy
+
+        self.sync_s3.encryption = True
+        self.sync_s3.update_slo_metadata(slo_meta, manifest, s3_key, {},
+                                         mock_ic)
+
+        self.mock_boto3_client.create_multipart_upload.assert_called_once_with(
+            Bucket=self.aws_bucket, Key=s3_key,
+            Metadata={'new-key': 'foo', 'other-key': 'bar'},
+            ServerSideEncryption='AES256')
 
     def test_validate_manifest_too_many_parts(self):
         segments = [{'name': '/segment/%d' % i} for i in xrange(10001)]

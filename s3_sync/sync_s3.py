@@ -36,6 +36,7 @@ class SyncS3(BaseSync):
     def _get_client_factory(self):
         aws_identity = self.settings['aws_identity']
         aws_secret = self.settings['aws_secret']
+        self.encryption = self.settings.get('encryption', False)
 
         boto_session = boto3.session.Session(
             aws_access_key_id=aws_identity,
@@ -115,11 +116,17 @@ class SyncS3(BaseSync):
                 s3_key, wrapper_stream.get_s3_headers()))
 
             s3_client = boto_client.client
-            s3_client.put_object(Bucket=self.aws_bucket,
-                                 Key=s3_key,
-                                 Body=wrapper_stream,
-                                 Metadata=wrapper_stream.get_s3_headers(),
-                                 ContentLength=len(wrapper_stream))
+
+            params = dict(
+                Bucket=self.aws_bucket,
+                Key=s3_key,
+                Body=wrapper_stream,
+                Metadata=wrapper_stream.get_s3_headers(),
+                ContentLength=len(wrapper_stream)
+            )
+            if not self._google() and self.encryption:
+                params['ServerSideEncryption'] = 'AES256'
+            s3_client.put_object(**params)
 
     def delete_object(self, swift_key, internal_client=None):
         s3_key = self.get_s3_name(swift_key)
@@ -236,10 +243,14 @@ class SyncS3(BaseSync):
                     internal_client):
         with self.client_pool.get_client() as boto_client:
             s3_client = boto_client.client
-            multipart_resp = s3_client.create_multipart_upload(
+            params = dict(
                 Bucket=self.aws_bucket,
                 Key=s3_key,
-                Metadata=convert_to_s3_headers(object_meta))
+                Metadata=convert_to_s3_headers(object_meta)
+            )
+            if not self._google() and self.encryption:
+                params['ServerSideEncryption'] = 'AES256'
+            multipart_resp = s3_client.create_multipart_upload(**params)
         upload_id = multipart_resp['UploadId']
 
         work_queue = eventlet.queue.Queue(self.SLO_QUEUE_SIZE)
@@ -350,10 +361,14 @@ class SyncS3(BaseSync):
         # stitching calculation to get the offset correctly.
         with self.client_pool.get_client() as boto_client:
             s3_client = boto_client.client
-            multipart_resp = s3_client.create_multipart_upload(
+            params = dict(
                 Bucket=self.aws_bucket,
                 Key=s3_key,
-                Metadata=convert_to_s3_headers(swift_meta))
+                Metadata=convert_to_s3_headers(swift_meta)
+            )
+            if not self._google() and self.encryption:
+                params['ServerSideEncryption'] = 'AES256'
+            multipart_resp = s3_client.create_multipart_upload(**params)
 
             # The original manifest must match the MPU parts to ensure that
             # ETags match
@@ -395,13 +410,17 @@ class SyncS3(BaseSync):
         with self.client_pool.get_client() as boto_client:
             s3_client = boto_client.client
             if not check_slo(swift_meta):
-                s3_client.copy_object(
+                params = dict(
                     CopySource={'Bucket': self.aws_bucket,
                                 'Key': s3_key},
                     MetadataDirective='REPLACE',
                     Metadata=convert_to_s3_headers(swift_meta),
                     Bucket=self.aws_bucket,
-                    Key=s3_key)
+                    Key=s3_key
+                )
+                if not self._google() and self.encryption:
+                    params['ServerSideEncryption'] = 'AES256'
+                s3_client.copy_object(**params)
 
     @staticmethod
     def check_etag(swift_etag, s3_etag):
