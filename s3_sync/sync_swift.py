@@ -80,16 +80,16 @@ class SyncSwift(BaseSync):
                 self._update_metadata(name, metadata)
             return
 
-        wrapper_stream = FileWrapper(internal_client,
-                                     self.account,
-                                     self.container,
-                                     name,
-                                     swift_req_hdrs)
-        headers = self._get_user_headers(wrapper_stream.get_headers())
-        self.logger.debug('Uploading %s with meta: %r' % (
-            name, headers))
-
         with self.client_pool.get_client() as client:
+            wrapper_stream = FileWrapper(internal_client,
+                                         self.account,
+                                         self.container,
+                                         name,
+                                         swift_req_hdrs)
+            headers = self._get_user_headers(wrapper_stream.get_headers())
+            self.logger.debug('Uploading %s with meta: %r' % (
+                name, headers))
+
             swift_client = client.client
             swift_client.put_object(self.remote_container,
                                     name,
@@ -203,13 +203,12 @@ class SyncSwift(BaseSync):
 
     def _upload_segment(self, segment, req_headers, internal_client):
         container, obj = segment['name'].split('/', 2)[1:]
-        wrapper = FileWrapper(internal_client, self.account, container, obj,
-                              req_headers)
         dest_container = self.remote_container + '_segments'
-
-        self.logger.debug('Uploading segment %s: %s bytes' % (
-            self.account + segment['name'], segment['bytes']))
         with self.client_pool.get_client() as client:
+            wrapper = FileWrapper(internal_client, self.account, container,
+                                  obj, req_headers)
+            self.logger.debug('Uploading segment %s: %s bytes' % (
+                self.account + segment['name'], segment['bytes']))
             swift_client = client.client
             try:
                 swift_client.put_object(dest_container, obj, wrapper,

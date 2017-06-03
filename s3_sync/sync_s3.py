@@ -104,14 +104,15 @@ class SyncS3(BaseSync):
                 self.update_metadata(metadata, s3_key)
                 return
 
-        wrapper_stream = FileWrapper(internal_client,
-                                     self.account,
-                                     self.container,
-                                     swift_key,
-                                     swift_req_hdrs)
-        self.logger.debug('Uploading %s with meta: %r' % (
-            s3_key, wrapper_stream.get_s3_headers()))
         with self.client_pool.get_client() as boto_client:
+            wrapper_stream = FileWrapper(internal_client,
+                                         self.account,
+                                         self.container,
+                                         swift_key,
+                                         swift_req_hdrs)
+            self.logger.debug('Uploading %s with meta: %r' % (
+                s3_key, wrapper_stream.get_s3_headers()))
+
             s3_client = boto_client.client
             s3_client.put_object(Bucket=self.aws_bucket,
                                  Key=s3_key,
@@ -189,9 +190,10 @@ class SyncS3(BaseSync):
 
     def _upload_google_slo(self, manifest, metadata, s3_key, req_hdrs,
                            internal_client):
-        slo_wrapper = SLOFileWrapper(
-            internal_client, self.account, manifest, metadata, req_hdrs)
+
         with self.client_pool.get_client() as boto_client:
+            slo_wrapper = SLOFileWrapper(
+                internal_client, self.account, manifest, metadata, req_hdrs)
             s3_client = boto_client.client
             s3_client.put_object(Bucket=self.aws_bucket,
                                  Key=s3_key,
@@ -303,13 +305,13 @@ class SyncS3(BaseSync):
             try:
                 part_number, segment = work
                 container, obj = segment['name'].split('/', 2)[1:]
-                wrapper = FileWrapper(internal_client, self.account,
-                                      container, obj, req_headers)
 
                 with self.client_pool.get_client() as boto_client:
                     self.logger.debug('Uploading part %d from %s: %s bytes' % (
                         part_number, self.account + segment['name'],
                         segment['bytes']))
+                    wrapper = FileWrapper(internal_client, self.account,
+                                          container, obj, req_headers)
                     s3_client = boto_client.client
                     resp = s3_client.upload_part(
                         Bucket=self.aws_bucket,
