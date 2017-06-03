@@ -17,20 +17,21 @@ class BaseSync(object):
     GB = 1024*MB
 
     class HttpClientPoolEntry(object):
-        def __init__(self, client):
+        def __init__(self, client, pool):
             self.semaphore = eventlet.semaphore.Semaphore(
                 BaseSync.HTTP_CONN_POOL_SIZE)
             self.client = client
+            self.pool = pool
 
         def acquire(self):
-            return self.semaphore.acquire(blocking=True)
+            return self.semaphore.acquire(blocking=False)
 
         def __enter__(self):
             return self
 
         def __exit__(self, exc_type, exc_value, traceback):
             self.semaphore.release()
-            return False
+            self.pool.release()
 
     class HttpClientPool(object):
         def __init__(self, client_factory, max_conns):
@@ -41,17 +42,21 @@ class BaseSync(object):
             clients = max_conns / BaseSync.HTTP_CONN_POOL_SIZE
             if max_conns % BaseSync.HTTP_CONN_POOL_SIZE:
                 clients += 1
-            return [BaseSync.HttpClientPoolEntry(client_factory())
+            return [BaseSync.HttpClientPoolEntry(client_factory(), self)
                     for _ in range(0, clients)]
 
         def get_client(self):
             # SLO uploads may exhaust the client pool and we will need to wait
             # for connections
-            with self.get_semaphore:
-                # we are guaranteed that there is an open connection we can use
-                for client in self.client_pool:
-                    if client.acquire():
-                        return client
+            self.get_semaphore.acquire()
+            # we are guaranteed that there is an open connection we can use
+            for client in self.client_pool:
+                if client.acquire():
+                    return client
+            raise RuntimeError('Pool was exhausted')  # should never happen
+
+        def release(self):
+            self.get_semaphore.release()
 
     def __init__(self, settings, max_conns=10):
         self.settings = settings
