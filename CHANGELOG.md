@@ -1,3 +1,12 @@
+## 0.1.6 (2017-06-02)
+
+Bug fixes:
+
+    - Fix an issue that prevents SLO uploads where opening a Swift connection
+      before acquiring the S3 client may cause the Swift connection to be closed
+      before any bytes are read.
+    - Do not serialize on a single Boto session.
+
 ## 0.1.5 (2017-06-01)
 
 Bug fixes:
