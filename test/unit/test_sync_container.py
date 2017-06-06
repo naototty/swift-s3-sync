@@ -1,7 +1,11 @@
 import json
 import mock
-from s3_sync.sync_container import SyncContainer
+import time
 import unittest
+
+from container_crawler import RetryError
+from s3_sync.sync_container import SyncContainer
+from swift.common.utils import decode_timestamps, Timestamp
 
 
 class TestSyncContainer(unittest.TestCase):
@@ -258,3 +262,93 @@ class TestSyncContainer(unittest.TestCase):
                     'protocol': 'foo'}
         with self.assertRaises(NotImplementedError):
             SyncContainer(self.scratch_space, settings, 1)
+
+    @mock.patch('s3_sync.sync_s3.boto3.session.Session')
+    def test_retry_copy_after(self, session_mock):
+        settings = {
+            'aws_bucket': self.aws_bucket,
+            'aws_identity': 'identity',
+            'aws_secret': 'credential',
+            'account': 'account',
+            'container': 'container',
+            'copy_after': 3600}
+        with self.assertRaises(RetryError):
+            sync = SyncContainer(self.scratch_space, settings)
+            sync.handle({'deleted': 0, 'created_at': str(time.time())}, None)
+
+        current = time.time()
+        with mock.patch('s3_sync.sync_container.time') as time_mock:
+            time_mock.time.return_value = current + settings['copy_after'] + 1
+            sync = SyncContainer(self.scratch_space, settings)
+            sync.provider = mock.Mock()
+            sync.handle({'deleted': 0,
+                         'created_at': str(time.time()),
+                         'name': 'foo',
+                         'storage_policy_index': 99}, None)
+            sync.provider.upload_object.assert_called_once_with(
+                'foo', 99, None)
+
+    @mock.patch('s3_sync.sync_s3.boto3.session.Session')
+    def test_retain_copy(self, session_mock):
+        settings = {
+            'aws_bucket': self.aws_bucket,
+            'aws_identity': 'identity',
+            'aws_secret': 'credential',
+            'account': 'account',
+            'container': 'container',
+            'retain_local': False}
+
+        sync = SyncContainer(self.scratch_space, settings)
+        sync.provider = mock.Mock()
+        swift_client = mock.Mock()
+        row = {'deleted': 0,
+               'created_at': str(time.time() - 5),
+               'name': 'foo',
+               'storage_policy_index': 99}
+        sync.handle(row, swift_client)
+
+        _, _, swift_ts = decode_timestamps(row['created_at'])
+        swift_ts.offset += 1
+
+        sync.provider.upload_object.assert_called_once_with(
+            row['name'], 99, swift_client)
+        swift_client.delete_object.assert_called_once_with(
+            settings['account'], settings['container'], row['name'],
+            headers={'X-Timestamp': Timestamp(swift_ts).internal})
+
+    @mock.patch('s3_sync.sync_s3.boto3.session.Session')
+    def test_no_propagate_delete(self, session_mock):
+        settings = {
+            'aws_bucket': self.aws_bucket,
+            'aws_identity': 'identity',
+            'aws_secret': 'credential',
+            'account': 'account',
+            'container': 'container',
+            'propagate_delete': False}
+
+        sync = SyncContainer(self.scratch_space, settings)
+        sync.provider = mock.Mock()
+        row = {'deleted': 1, 'name': 'tombstone'}
+        sync.handle(row, None)
+
+        # Make sure we do nothing with this row
+        self.assertEqual([], sync.provider.mock_calls)
+
+    @mock.patch('s3_sync.sync_s3.boto3.session.Session')
+    def test_propagate_delete(self, session_mock):
+        settings = {
+            'aws_bucket': self.aws_bucket,
+            'aws_identity': 'identity',
+            'aws_secret': 'credential',
+            'account': 'account',
+            'container': 'container',
+            'propagate_delete': True}
+
+        sync = SyncContainer(self.scratch_space, settings)
+        sync.provider = mock.Mock()
+        row = {'deleted': 1, 'name': 'tombstone'}
+        sync.handle(row, None)
+
+        # Make sure that we do not make any additional calls
+        self.assertEqual([mock.call.delete_object(row['name'], None)],
+                         sync.provider.mock_calls)

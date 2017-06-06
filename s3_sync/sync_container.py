@@ -80,7 +80,7 @@ class SyncContainer(container_crawler.base_sync.BaseSync):
         else:
             # The metadata timestamp should always be the latest timestamp
             _, _, meta_ts = decode_timestamps(row['created_at'])
-            if time.time() < self.copy_after + meta_ts.timestamp:
+            if time.time() <= self.copy_after + meta_ts.timestamp:
                 raise RetryError('Object is not yet eligible for archive')
             self.provider.upload_object(row['name'],
                                         row['storage_policy_index'],
