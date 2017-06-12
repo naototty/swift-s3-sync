@@ -16,7 +16,8 @@ from .sync_swift import SyncSwift
 
 
 class SyncContainer(container_crawler.base_sync.BaseSync):
-    def __init__(self, status_dir, sync_settings, max_conns=10):
+    def __init__(self, status_dir, sync_settings, global_conf,
+                 max_conns=10):
         super(SyncContainer, self).__init__(status_dir, sync_settings)
         self.logger = logging.getLogger('s3-sync')
         self.aws_bucket = sync_settings['aws_bucket']

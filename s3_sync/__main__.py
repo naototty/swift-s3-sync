@@ -84,8 +84,12 @@ def main():
     from .sync_container import SyncContainer
     logger = logging.getLogger('s3-sync')
     logger.debug('Starting S3Sync')
+
+    def crawler_factory(status_dir, container_conf):
+        return SyncContainer(status_dir, container_conf, conf)
+
     try:
-        crawler = ContainerCrawler(conf, SyncContainer, logger)
+        crawler = ContainerCrawler(conf, crawler_factory, logger)
         if args.once:
             crawler.run_once()
         else:

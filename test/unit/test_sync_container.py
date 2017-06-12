@@ -56,7 +56,8 @@ class TestSyncContainer(unittest.TestCase):
                                              'aws_identity': 'identity',
                                              'aws_secret': 'credential',
                                              'account': 'account',
-                                             'container': 'container'})
+                                             'container': 'container'},
+                                            {})
 
     def test_load_non_existent_meta(self):
         ret = self.sync_container.get_last_row('db-id')
@@ -239,7 +240,7 @@ class TestSyncContainer(unittest.TestCase):
 
         for settings in test_settings:
             with mock.patch('s3_sync.sync_container.SyncS3') as mock_sync_s3:
-                SyncContainer(self.scratch_space, settings, max_conns=1)
+                SyncContainer(self.scratch_space, settings, {}, max_conns=1)
                 mock_sync_s3.assert_called_once_with(settings, 1)
 
     def test_swift_provider(self):
@@ -250,7 +251,7 @@ class TestSyncContainer(unittest.TestCase):
                     'container': 'container',
                     'protocol': 'swift'}
         with mock.patch('s3_sync.sync_container.SyncSwift') as mock_sync_swift:
-            SyncContainer(self.scratch_space, settings, max_conns=1)
+            SyncContainer(self.scratch_space, settings, {}, max_conns=1)
             mock_sync_swift.assert_called_once_with(settings, 1)
 
     def test_unknown_provider(self):
@@ -261,7 +262,7 @@ class TestSyncContainer(unittest.TestCase):
                     'container': 'container',
                     'protocol': 'foo'}
         with self.assertRaises(NotImplementedError):
-            SyncContainer(self.scratch_space, settings, 1)
+            SyncContainer(self.scratch_space, settings, {}, 1)
 
     @mock.patch('s3_sync.sync_s3.boto3.session.Session')
     def test_retry_copy_after(self, session_mock):
@@ -273,13 +274,13 @@ class TestSyncContainer(unittest.TestCase):
             'container': 'container',
             'copy_after': 3600}
         with self.assertRaises(RetryError):
-            sync = SyncContainer(self.scratch_space, settings)
+            sync = SyncContainer(self.scratch_space, settings, {})
             sync.handle({'deleted': 0, 'created_at': str(time.time())}, None)
 
         current = time.time()
         with mock.patch('s3_sync.sync_container.time') as time_mock:
             time_mock.time.return_value = current + settings['copy_after'] + 1
-            sync = SyncContainer(self.scratch_space, settings)
+            sync = SyncContainer(self.scratch_space, settings, {})
             sync.provider = mock.Mock()
             sync.handle({'deleted': 0,
                          'created_at': str(time.time()),
@@ -298,7 +299,7 @@ class TestSyncContainer(unittest.TestCase):
             'container': 'container',
             'retain_local': False}
 
-        sync = SyncContainer(self.scratch_space, settings)
+        sync = SyncContainer(self.scratch_space, settings, {})
         sync.provider = mock.Mock()
         swift_client = mock.Mock()
         row = {'deleted': 0,
@@ -326,7 +327,7 @@ class TestSyncContainer(unittest.TestCase):
             'container': 'container',
             'propagate_delete': False}
 
-        sync = SyncContainer(self.scratch_space, settings)
+        sync = SyncContainer(self.scratch_space, settings, {})
         sync.provider = mock.Mock()
         row = {'deleted': 1, 'name': 'tombstone'}
         sync.handle(row, None)
@@ -344,7 +345,7 @@ class TestSyncContainer(unittest.TestCase):
             'container': 'container',
             'propagate_delete': True}
 
-        sync = SyncContainer(self.scratch_space, settings)
+        sync = SyncContainer(self.scratch_space, settings, {})
         sync.provider = mock.Mock()
         row = {'deleted': 1, 'name': 'tombstone'}
         sync.handle(row, None)
