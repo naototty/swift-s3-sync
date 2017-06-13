@@ -3,7 +3,7 @@
         {
             "account": "AUTH_swift",
             "container": "local",
-			"storage_location": "s3-remote",
+			"storage_location": "other-swift",
             "copy_after": 0,
             "propagate_delete": false,
             "protocol": "swift",
@@ -12,7 +12,7 @@
     ],
     "storage_locations":
 	{
-		"s3-remote":
+		"other-swift":
 		{
             "aws_bucket": "remote",
             "aws_endpoint": "http://192.168.22.99/auth/v1.0",

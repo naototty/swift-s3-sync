@@ -97,7 +97,7 @@ class SyncSwift(BaseSync):
                                     etag=wrapper_stream.get_headers()['etag'],
                                     headers=headers)
 
-    def delete_object(self, name):
+    def delete_object(self, name, internal_client=None):
         """Delete an object from the remote cluster.
 
         This is slightly more complex than when we deal with S3/GCS, as the
