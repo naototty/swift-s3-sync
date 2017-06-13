@@ -51,13 +51,15 @@ class TestSyncContainer(unittest.TestCase):
 
         self.aws_bucket = 'bucket'
         self.scratch_space = 'scratch'
-        self.sync_container = SyncContainer(self.scratch_space,
-                                            {'aws_bucket': self.aws_bucket,
-                                             'aws_identity': 'identity',
-                                             'aws_secret': 'credential',
-                                             'account': 'account',
-                                             'container': 'container'},
-                                            {})
+        self.sync_container = SyncContainer(
+            self.scratch_space,
+            {'storage_location': 'some-s3',
+             'account': 'account',
+             'container': 'container'},
+            {'storage_locations': {'some-s3': {
+                'aws_bucket': self.aws_bucket,
+                'aws_identity': 'identity',
+                'aws_secret': 'credential'}}})
 
     def test_load_non_existent_meta(self):
         ret = self.sync_container.get_last_row('db-id')
@@ -230,57 +232,78 @@ class TestSyncContainer(unittest.TestCase):
                     mock_exists.call_args_list)
 
     def test_s3_provider(self):
-        defaults = {'aws_bucket': self.aws_bucket,
-                    'aws_identity': 'identity',
-                    'aws_secret': 'credential',
-                    'account': 'account',
-                    'container': 'container'}
-        test_settings = [defaults,
-                         dict(defaults.items() + [('protocol', 's3')])]
+        sync_conf = {'account': 'account',
+                     'container': 'container',
+                     'storage_location': 'a-bucket'}
+        global_conf = {'storage_locations': {'a-bucket': {
+            'aws_bucket': self.aws_bucket,
+            'aws_identity': 'identity',
+            'aws_secret': 'credential'}}}
+        global_conf_explicit = {'storage_locations': {'a-bucket': {
+            'aws_bucket': self.aws_bucket,
+            'aws_identity': 'identity',
+            'aws_secret': 'credential',
+            'protocol': 's3'}}}
 
-        for settings in test_settings:
+        test_settings = [(sync_conf, global_conf),
+                         (sync_conf, global_conf_explicit)]
+
+        for sconf, gconf in test_settings:
             with mock.patch('s3_sync.sync_container.SyncS3') as mock_sync_s3:
-                SyncContainer(self.scratch_space, settings, {}, max_conns=1)
-                mock_sync_s3.assert_called_once_with(settings, 1)
+                SyncContainer(self.scratch_space, sconf, gconf, max_conns=1)
+                expected_conf = sconf.copy()
+                expected_conf.update(gconf['storage_locations']['a-bucket'])
+                mock_sync_s3.assert_called_once_with(expected_conf, 1)
 
     def test_swift_provider(self):
-        settings = {'aws_bucket': self.aws_bucket,
-                    'aws_identity': 'identity',
-                    'aws_secret': 'credential',
-                    'account': 'account',
+        settings = {'account': 'account',
                     'container': 'container',
-                    'protocol': 'swift'}
+                    'protocol': 'swift',
+                    'storage_location': 'some-account'}
+        global_conf = {'storage_locations': {'some-account': {
+            'aws_bucket': self.aws_bucket,
+            'aws_identity': 'identity',
+            'aws_secret': 'credential'}}}
         with mock.patch('s3_sync.sync_container.SyncSwift') as mock_sync_swift:
-            SyncContainer(self.scratch_space, settings, {}, max_conns=1)
-            mock_sync_swift.assert_called_once_with(settings, 1)
+            SyncContainer(self.scratch_space, settings, global_conf,
+                          max_conns=1)
+            expected_conf = settings.copy()
+            expected_conf.update(
+                global_conf['storage_locations']['some-account'])
+            mock_sync_swift.assert_called_once_with(expected_conf, 1)
 
     def test_unknown_provider(self):
-        settings = {'aws_bucket': self.aws_bucket,
-                    'aws_identity': 'identity',
-                    'aws_secret': 'credential',
-                    'account': 'account',
+        settings = {'account': 'account',
                     'container': 'container',
-                    'protocol': 'foo'}
+                    'storage_location': 'mysterymeat'}
+        global_conf = {'storage_locations': {'mysterymeat': {
+            'aws_bucket': self.aws_bucket,
+            'aws_identity': 'identity',
+            'aws_secret': 'credential',
+            'protocol': 'foo'}}}
+
         with self.assertRaises(NotImplementedError):
-            SyncContainer(self.scratch_space, settings, {}, 1)
+            SyncContainer(self.scratch_space, settings, global_conf, 1)
 
     @mock.patch('s3_sync.sync_s3.boto3.session.Session')
     def test_retry_copy_after(self, session_mock):
         settings = {
-            'aws_bucket': self.aws_bucket,
-            'aws_identity': 'identity',
-            'aws_secret': 'credential',
+            'storage_location': 'a-bucket',
             'account': 'account',
             'container': 'container',
             'copy_after': 3600}
+        global_conf = {'storage_locations': {'a-bucket': {
+            'aws_bucket': self.aws_bucket,
+            'aws_identity': 'identity',
+            'aws_secret': 'credential'}}}
         with self.assertRaises(RetryError):
-            sync = SyncContainer(self.scratch_space, settings, {})
+            sync = SyncContainer(self.scratch_space, settings, global_conf)
             sync.handle({'deleted': 0, 'created_at': str(time.time())}, None)
 
         current = time.time()
         with mock.patch('s3_sync.sync_container.time') as time_mock:
             time_mock.time.return_value = current + settings['copy_after'] + 1
-            sync = SyncContainer(self.scratch_space, settings, {})
+            sync = SyncContainer(self.scratch_space, settings, global_conf)
             sync.provider = mock.Mock()
             sync.handle({'deleted': 0,
                          'created_at': str(time.time()),
@@ -292,14 +315,16 @@ class TestSyncContainer(unittest.TestCase):
     @mock.patch('s3_sync.sync_s3.boto3.session.Session')
     def test_retain_copy(self, session_mock):
         settings = {
-            'aws_bucket': self.aws_bucket,
-            'aws_identity': 'identity',
-            'aws_secret': 'credential',
+            'storage_location': 'a-bucket',
             'account': 'account',
             'container': 'container',
             'retain_local': False}
+        global_conf = {'storage_locations': {'a-bucket': {
+            'aws_bucket': self.aws_bucket,
+            'aws_identity': 'identity',
+            'aws_secret': 'credential'}}}
 
-        sync = SyncContainer(self.scratch_space, settings, {})
+        sync = SyncContainer(self.scratch_space, settings, global_conf)
         sync.provider = mock.Mock()
         swift_client = mock.Mock()
         row = {'deleted': 0,
@@ -320,14 +345,16 @@ class TestSyncContainer(unittest.TestCase):
     @mock.patch('s3_sync.sync_s3.boto3.session.Session')
     def test_no_propagate_delete(self, session_mock):
         settings = {
-            'aws_bucket': self.aws_bucket,
-            'aws_identity': 'identity',
-            'aws_secret': 'credential',
+            'storage_location': 'a-bucket',
             'account': 'account',
             'container': 'container',
             'propagate_delete': False}
+        global_conf = {'storage_locations': {'a-bucket': {
+            'aws_bucket': self.aws_bucket,
+            'aws_identity': 'identity',
+            'aws_secret': 'credential'}}}
 
-        sync = SyncContainer(self.scratch_space, settings, {})
+        sync = SyncContainer(self.scratch_space, settings, global_conf)
         sync.provider = mock.Mock()
         row = {'deleted': 1, 'name': 'tombstone'}
         sync.handle(row, None)
@@ -338,14 +365,16 @@ class TestSyncContainer(unittest.TestCase):
     @mock.patch('s3_sync.sync_s3.boto3.session.Session')
     def test_propagate_delete(self, session_mock):
         settings = {
-            'aws_bucket': self.aws_bucket,
-            'aws_identity': 'identity',
-            'aws_secret': 'credential',
+            'storage_location': 'a-bucket',
             'account': 'account',
             'container': 'container',
             'propagate_delete': True}
+        global_conf = {'storage_locations': {'a-bucket': {
+            'aws_bucket': self.aws_bucket,
+            'aws_identity': 'identity',
+            'aws_secret': 'credential'}}}
 
-        sync = SyncContainer(self.scratch_space, settings, {})
+        sync = SyncContainer(self.scratch_space, settings, global_conf)
         sync.provider = mock.Mock()
         row = {'deleted': 1, 'name': 'tombstone'}
         sync.handle(row, None)

@@ -1,4 +1,4 @@
-# -*- coding: UTF-8 -*-
+# -*- coding: utf-8 -*-
 
 import hashlib
 import json
@@ -313,7 +313,7 @@ class TestSyncS3(unittest.TestCase):
             mock.call().meta.events.unregister(
                 'before-call.s3.PutObject', mock.ANY),
             mock.call().meta.events.unregister(
-                        'before-call.s3.UploadPart', mock.ANY)] * 10)
+                'before-call.s3.UploadPart', mock.ANY)] * 10)
         self.assertEqual(True, sync._google())
 
     def test_user_agent(self):
@@ -639,16 +639,16 @@ class TestSyncS3(unittest.TestCase):
             mock.call(Bucket=self.aws_bucket, Key=s3_key, PartNumber=2,
                       CopySource={'Bucket': self.aws_bucket, 'Key': s3_key},
                       CopySourceRange='bytes=%d-%d' % (
-                        12 * SyncS3.MB,
-                        26 * SyncS3.MB - 1),
+                          12 * SyncS3.MB,
+                          26 * SyncS3.MB - 1),
                       UploadId='mpu-upload')
         ])
         self.mock_boto3_client.complete_multipart_upload\
             .assert_called_once_with(Bucket=self.aws_bucket, Key=s3_key,
                                      UploadId='mpu-upload',
                                      MultipartUpload={'Parts': [
-                                        {'PartNumber': 1, 'ETag': 'abcdef'},
-                                        {'PartNumber': 2, 'ETag': 'fedcba'}
+                                         {'PartNumber': 1, 'ETag': 'abcdef'},
+                                         {'PartNumber': 2, 'ETag': 'fedcba'}
                                      ]})
 
     def test_validate_manifest_too_many_parts(self):

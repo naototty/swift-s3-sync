@@ -20,15 +20,21 @@ class SyncContainer(container_crawler.base_sync.BaseSync):
                  max_conns=10):
         super(SyncContainer, self).__init__(status_dir, sync_settings)
         self.logger = logging.getLogger('s3-sync')
-        self.aws_bucket = sync_settings['aws_bucket']
         self.copy_after = int(sync_settings.get('copy_after', 0))
         self.retain_copy = sync_settings.get('retain_local', True)
         self.propagate_delete = sync_settings.get('propagate_delete', True)
-        provider_type = sync_settings.get('protocol', None)
+
+        storage_location = sync_settings["storage_location"]
+
+        storage_settings = sync_settings.copy()
+        storage_settings.update(
+            global_conf["storage_locations"][storage_location])
+        self.aws_bucket = storage_settings['aws_bucket']
+        provider_type = storage_settings.get('protocol', None)
         if not provider_type or provider_type == 's3':
-            self.provider = SyncS3(sync_settings, max_conns)
+            self.provider = SyncS3(storage_settings, max_conns)
         elif provider_type == 'swift':
-            self.provider = SyncSwift(sync_settings, max_conns)
+            self.provider = SyncSwift(storage_settings, max_conns)
         else:
             raise NotImplementedError()
 

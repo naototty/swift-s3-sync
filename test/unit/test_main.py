@@ -15,9 +15,11 @@ class TestMain(unittest.TestCase):
         json.dump({
             "containers": [{"account": "a",
                             "container": "c",
-                            "aws_bucket": "columner-lightsomeness",
-                            "aws_identity": "root",
-                            "aws_secret": "swordfish"}],
+                            "storage_location": "aws-columner"}],
+            "storage_locations": {"aws-columner": {
+                "aws_bucket": "columner",
+                "aws_identity": "root",
+                "aws_secret": "swordfish"}},
             "devices": "/tmp",
             "items_chunk": 1000,
             "log_file": log_file.name,

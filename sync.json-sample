@@ -1,21 +1,28 @@
 {
     "containers": [
         {
-            "account": "AUTH_swift", 
-            "aws_bucket": "remote", 
-            "aws_endpoint": "http://192.168.22.99/auth/v1.0", 
-            "aws_identity": "swift", 
-            "aws_secret": "swift", 
-            "container": "local", 
-            "copy_after": 0, 
-            "propagate_delete": false, 
-            "protocol": "swift", 
+            "account": "AUTH_swift",
+            "container": "local",
+			"storage_location": "s3-remote",
+            "copy_after": 0,
+            "propagate_delete": false,
+            "protocol": "swift",
             "retain_local": false
         }
-    ], 
-    "devices": "/srv/node", 
-    "items_chunk": 1000, 
-    "log_file": "/var/log/swift-s3-sync.log", 
-    "poll_interval": 5, 
+    ],
+    "storage_locations":
+	{
+		"s3-remote":
+		{
+            "aws_bucket": "remote",
+            "aws_endpoint": "http://192.168.22.99/auth/v1.0",
+            "aws_identity": "swift",
+            "aws_secret": "swift"
+		}
+	},
+    "devices": "/srv/node",
+    "items_chunk": 1000,
+    "log_file": "/var/log/swift-s3-sync.log",
+    "poll_interval": 5,
     "status_dir": "/var/lib/swift-s3-sync"
 }
