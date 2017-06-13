@@ -51,7 +51,8 @@ class TestSyncSwift(unittest.TestCase):
                                              key, swift_req_headers)
 
         self.mock_swift_client.put_object.assert_called_with(
-            self.aws_bucket, key, wrapper, headers={}, etag='deadbeef')
+            self.aws_bucket, key, wrapper, headers={}, etag='deadbeef',
+            content_length=0)
 
     @mock.patch('s3_sync.sync_swift.check_slo')
     @mock.patch('s3_sync.sync_swift.FileWrapper')
@@ -81,7 +82,7 @@ class TestSyncSwift(unittest.TestCase):
 
         self.mock_swift_client.put_object.assert_called_with(
             self.aws_bucket, key, wrapper, headers={},
-            etag='deadbeef')
+            etag='deadbeef', content_length=0)
 
     def test_upload_changed_meta(self):
         key = 'key'
@@ -147,7 +148,8 @@ class TestSyncSwift(unittest.TestCase):
             wrapper,
             headers={'x-object-meta-new': 'new',
                      'x-object-meta-old': 'updated'},
-            etag='2')
+            etag='2',
+            content_length=42)
 
     def test_upload_same_object(self):
         key = 'key'
@@ -193,9 +195,9 @@ class TestSyncSwift(unittest.TestCase):
                         FakeStream(content=json.dumps(manifest)))
             if container == 'segment_container':
                 if key == 'slo-object/part1':
-                    return (200, {}, FakeStream(1024))
+                    return (200, {'Content-Length': 1024}, FakeStream(1024))
                 elif key == 'slo-object/part2':
-                    return (200, {}, FakeStream(1024))
+                    return (200, {'Content-Length': 1024}, FakeStream(1024))
             raise RuntimeError('Unknown key!')
 
         mock_ic = mock.Mock()
@@ -209,9 +211,11 @@ class TestSyncSwift(unittest.TestCase):
         segment_container = self.aws_bucket + '_segments'
         self.mock_swift_client.put_object.assert_has_calls([
             mock.call(segment_container,
-                      'slo-object/part1', mock.ANY, etag='deadbeef'),
+                      'slo-object/part1', mock.ANY, etag='deadbeef',
+                      content_length=1024),
             mock.call(self.aws_bucket + '_segments',
-                      'slo-object/part2', mock.ANY, etag='beefdead'),
+                      'slo-object/part2', mock.ANY, etag='beefdead',
+                      content_length=1024),
             mock.call(self.aws_bucket, slo_key,
                       mock.ANY,
                       headers={},

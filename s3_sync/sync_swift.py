@@ -95,7 +95,8 @@ class SyncSwift(BaseSync):
                                     name,
                                     wrapper_stream,
                                     etag=wrapper_stream.get_headers()['etag'],
-                                    headers=headers)
+                                    headers=headers,
+                                    content_length=len(wrapper_stream))
 
     def delete_object(self, name, internal_client=None):
         """Delete an object from the remote cluster.
@@ -212,7 +213,8 @@ class SyncSwift(BaseSync):
             swift_client = client.client
             try:
                 swift_client.put_object(dest_container, obj, wrapper,
-                                        etag=segment['hash'])
+                                        etag=segment['hash'],
+                                        content_length=len(wrapper))
             except swiftclient.exceptions.ClientException as e:
                 # The segments may not exist, so we need to create it
                 if e.http_status == 404:
@@ -220,7 +222,8 @@ class SyncSwift(BaseSync):
                         container))
                     swift_client.put_container(dest_container)
                     swift_client.put_object(dest_container, obj, wrapper,
-                                            etag=segment['hash'])
+                                            etag=segment['hash'],
+                                            content_length=len(wrapper))
 
     @staticmethod
     def _is_meta_synced(local_metadata, remote_metadata):
