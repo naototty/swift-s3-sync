@@ -5,6 +5,8 @@ import unittest
 
 from container_crawler import RetryError
 from s3_sync.sync_container import SyncContainer
+from s3_sync.sync_s3 import SyncS3
+from s3_sync.sync_swift import SyncSwift
 from swift.common.utils import decode_timestamps, Timestamp
 
 
@@ -238,20 +240,23 @@ class TestSyncContainer(unittest.TestCase):
                          dict(defaults.items() + [('protocol', 's3')])]
 
         for settings in test_settings:
-            with mock.patch('s3_sync.sync_container.SyncS3') as mock_sync_s3:
-                SyncContainer(self.scratch_space, settings, max_conns=1)
-                mock_sync_s3.assert_called_once_with(settings, 1)
+            sync = SyncContainer(self.scratch_space, settings, max_conns=1)
+            self.assertIsInstance(sync.provider, SyncS3)
+            self.assertEqual(sync.provider.settings, settings)
+            self.assertEqual(len(sync.provider.client_pool.client_pool), 1)
 
     def test_swift_provider(self):
         settings = {'aws_bucket': self.aws_bucket,
                     'aws_identity': 'identity',
                     'aws_secret': 'credential',
+                    'aws_endpoint': 'http://swift.example.com:8080/auth/v1.0',
                     'account': 'account',
                     'container': 'container',
                     'protocol': 'swift'}
-        with mock.patch('s3_sync.sync_container.SyncSwift') as mock_sync_swift:
-            SyncContainer(self.scratch_space, settings, max_conns=1)
-            mock_sync_swift.assert_called_once_with(settings, 1)
+        sync = SyncContainer(self.scratch_space, settings, max_conns=1)
+        self.assertIsInstance(sync.provider, SyncSwift)
+        self.assertEqual(sync.provider.settings, settings)
+        self.assertEqual(len(sync.provider.client_pool.client_pool), 1)
 
     def test_unknown_provider(self):
         settings = {'aws_bucket': self.aws_bucket,

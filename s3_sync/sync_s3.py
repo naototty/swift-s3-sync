@@ -15,6 +15,7 @@ from .utils import (convert_to_s3_headers, FileWrapper, SLOFileWrapper,
                     SWIFT_USER_META_PREFIX)
 
 
+@BaseSync.register('s3')
 class SyncS3(BaseSync):
     # S3 prefix space: 6 16 digit characters
     PREFIX_LEN = 6

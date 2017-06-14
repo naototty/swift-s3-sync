@@ -11,8 +11,7 @@ import time
 
 import container_crawler.base_sync
 from container_crawler import RetryError
-from .sync_s3 import SyncS3
-from .sync_swift import SyncSwift
+from .base_sync import BaseSync
 
 
 class SyncContainer(container_crawler.base_sync.BaseSync):
@@ -23,13 +22,7 @@ class SyncContainer(container_crawler.base_sync.BaseSync):
         self.copy_after = int(sync_settings.get('copy_after', 0))
         self.retain_copy = sync_settings.get('retain_local', True)
         self.propagate_delete = sync_settings.get('propagate_delete', True)
-        provider_type = sync_settings.get('protocol', None)
-        if not provider_type or provider_type == 's3':
-            self.provider = SyncS3(sync_settings, max_conns)
-        elif provider_type == 'swift':
-            self.provider = SyncSwift(sync_settings, max_conns)
-        else:
-            raise NotImplementedError()
+        self.provider = BaseSync.create(sync_settings, max_conns)
 
     def get_last_row(self, db_id):
         if not os.path.exists(self._status_file):

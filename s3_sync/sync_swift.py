@@ -8,6 +8,7 @@ from .base_sync import BaseSync
 from .utils import (FileWrapper, check_slo, SWIFT_USER_META_PREFIX)
 
 
+@BaseSync.register('swift')
 class SyncSwift(BaseSync):
     def __init__(self, settings, max_conns=10):
         super(SyncSwift, self).__init__(settings, max_conns)
