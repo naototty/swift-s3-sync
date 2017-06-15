@@ -73,6 +73,13 @@ class BaseSync(object):
         self.client_pool = self.HttpClientPool(
             self._get_client_factory(), max_conns)
 
+    def __repr__(self):
+        return '<%s: %s/%s>' % (
+            self.__class__.__name__,
+            's3:/' if self.endpoint is None else self.endpoint.rstrip('/'),
+            self.aws_bucket,
+        )
+
     def upload_object(self, name, storage_policy_index):
         raise NotImplementedError()
 
