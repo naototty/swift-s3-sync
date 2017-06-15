@@ -134,8 +134,8 @@ class TestSLOFileWrapper(unittest.TestCase):
             if not data:
                 break
         self.assertEqual(1500, len(content))
-        self.assertEqual('A'*500, content[0:500])
-        self.assertEqual('B'*1000, content[500:1500])
+        self.assertEqual('A' * 500, content[0:500])
+        self.assertEqual('B' * 1000, content[500:1500])
 
         self.swift.get_object.has_calls(
             mock.call('account', 'foo', 'part1', {}),

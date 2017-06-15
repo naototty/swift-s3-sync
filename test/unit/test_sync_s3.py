@@ -247,6 +247,7 @@ class TestSyncS3(unittest.TestCase):
             Bucket=self.aws_bucket,
             Key=self.sync_s3.get_s3_name(key),
             Metadata={'new': 'new', 'old': 'updated'})
+
     @mock.patch('s3_sync.sync_s3.FileWrapper')
     def test_upload_changed_meta_glacier(self, mock_file_wrapper):
         key = 'key'
@@ -444,7 +445,7 @@ class TestSyncS3(unittest.TestCase):
             mock.call().meta.events.unregister(
                 'before-call.s3.PutObject', mock.ANY),
             mock.call().meta.events.unregister(
-                        'before-call.s3.UploadPart', mock.ANY)] * 10)
+                'before-call.s3.UploadPart', mock.ANY)] * 10)
         self.assertEqual(True, sync._google())
 
     def test_user_agent(self):
@@ -561,7 +562,7 @@ class TestSyncS3(unittest.TestCase):
                     {'name': '/segment_container/slo-object/part2',
                      'hash': 'beefdead',
                      'bytes': 200}]
-        fake_body = FakeStream(5*SyncS3.MB)
+        fake_body = FakeStream(5 * SyncS3.MB)
 
         self.mock_boto3_client.create_multipart_upload.return_value = {
             'UploadId': 'mpu-key-for-slo'}
@@ -621,7 +622,7 @@ class TestSyncS3(unittest.TestCase):
         manifest = [{'name': '/segment_container/slo-object/part1',
                      'hash': 'deadbeef',
                      'bytes': 100}]
-        fake_body = FakeStream(5*SyncS3.MB)
+        fake_body = FakeStream(5 * SyncS3.MB)
 
         self.mock_boto3_client.create_multipart_upload.return_value = {
             'UploadId': 'mpu-key-for-slo'}
@@ -654,10 +655,10 @@ class TestSyncS3(unittest.TestCase):
                              'X-Newest': True}
         manifest = [{'name': '/segment_container/slo-object/part1',
                      'hash': 'deadbeef',
-                     'bytes': 5*SyncS3.MB},
+                     'bytes': 5 * SyncS3.MB},
                     {'name': '/segment_container/slo-object/part2',
                      'hash': 'beefdead',
-                     'bytes': 5*SyncS3.MB}]
+                     'bytes': 5 * SyncS3.MB}]
 
         self.mock_boto3_client.head_object.return_value = {
             'Metadata': {},
@@ -773,7 +774,7 @@ class TestSyncS3(unittest.TestCase):
             {'name': '/segments/slo-object/part2',
              'hash': 'fedcba'}]
         s3_key = self.sync_s3.get_s3_name('slo-object')
-        segment_lengths = [12*SyncS3.MB, 14*SyncS3.MB]
+        segment_lengths = [12 * SyncS3.MB, 14 * SyncS3.MB]
 
         def get_object_metadata(account, container, key, headers):
             return {'content-length': segment_lengths[int(key[-1]) - 1]}
@@ -801,21 +802,21 @@ class TestSyncS3(unittest.TestCase):
         self.mock_boto3_client.upload_part_copy.assert_has_calls([
             mock.call(Bucket=self.aws_bucket, Key=s3_key, PartNumber=1,
                       CopySource={'Bucket': self.aws_bucket, 'Key': s3_key},
-                      CopySourceRange='bytes=0-%d' % (12*SyncS3.MB - 1),
+                      CopySourceRange='bytes=0-%d' % (12 * SyncS3.MB - 1),
                       UploadId='mpu-upload'),
             mock.call(Bucket=self.aws_bucket, Key=s3_key, PartNumber=2,
                       CopySource={'Bucket': self.aws_bucket, 'Key': s3_key},
                       CopySourceRange='bytes=%d-%d' % (
-                        12 * SyncS3.MB,
-                        26 * SyncS3.MB - 1),
+                          12 * SyncS3.MB,
+                          26 * SyncS3.MB - 1),
                       UploadId='mpu-upload')
         ])
         self.mock_boto3_client.complete_multipart_upload\
             .assert_called_once_with(Bucket=self.aws_bucket, Key=s3_key,
                                      UploadId='mpu-upload',
                                      MultipartUpload={'Parts': [
-                                        {'PartNumber': 1, 'ETag': 'abcdef'},
-                                        {'PartNumber': 2, 'ETag': 'fedcba'}
+                                         {'PartNumber': 1, 'ETag': 'abcdef'},
+                                         {'PartNumber': 2, 'ETag': 'fedcba'}
                                      ]})
 
     def test_slo_metadata_update_encryption(self):
@@ -828,7 +829,7 @@ class TestSyncS3(unittest.TestCase):
             {'name': '/segments/slo-object/part1',
              'hash': 'abcdef'}]
         s3_key = self.sync_s3.get_s3_name('slo-object')
-        segment_lengths = [12*SyncS3.MB, 14*SyncS3.MB]
+        segment_lengths = [12 * SyncS3.MB, 14 * SyncS3.MB]
 
         def get_object_metadata(account, container, key, headers):
             return {'content-length': segment_lengths[int(key[-1]) - 1]}
@@ -861,7 +862,7 @@ class TestSyncS3(unittest.TestCase):
 
     def test_validate_manifest_small_part(self):
         segments = [{'name': '/segment/1',
-                     'bytes': 10*SyncS3.MB},
+                     'bytes': 10 * SyncS3.MB},
                     {'name': '/segment/2',
                      'bytes': 10},
                     {'name': '/segment/3',

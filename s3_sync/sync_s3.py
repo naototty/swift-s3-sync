@@ -18,9 +18,9 @@ from .utils import (convert_to_s3_headers, FileWrapper, SLOFileWrapper,
 class SyncS3(BaseSync):
     # S3 prefix space: 6 16 digit characters
     PREFIX_LEN = 6
-    PREFIX_SPACE = 16**PREFIX_LEN
-    MIN_PART_SIZE = 5*BaseSync.MB
-    MAX_PART_SIZE = 5*BaseSync.GB
+    PREFIX_SPACE = 16 ** PREFIX_LEN
+    MIN_PART_SIZE = 5 * BaseSync.MB
+    MAX_PART_SIZE = 5 * BaseSync.GB
     MAX_PARTS = 10000
     GOOGLE_API = 'https://storage.googleapis.com'
     CLOUD_SYNC_VERSION = '5.0'

@@ -11,7 +11,7 @@ setup(name='swift-s3-sync',
       test_suite='nose.collector',
       url='https://github.com/swiftstack/swift-s3-sync',
       packages=['s3_sync'],
-      install_requires = reqs,
+      install_requires=reqs,
       entry_points={
           'console_scripts': [
               'swift-s3-sync = s3_sync.__main__:main'

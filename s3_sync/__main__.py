@@ -9,6 +9,9 @@ import traceback
 from container_crawler import ContainerCrawler
 
 
+MAX_LOG_SIZE = 100 * 1024 * 1024
+
+
 def setup_logger(console=False, log_file=None, level='INFO'):
     logger = logging.getLogger('s3-sync')
     logger.setLevel(level)
@@ -18,7 +21,7 @@ def setup_logger(console=False, log_file=None, level='INFO'):
         handler = logging.StreamHandler()
     elif log_file:
         handler = logging.handlers.RotatingFileHandler(log_file,
-                                                       maxBytes=1024*1024*100,
+                                                       maxBytes=MAX_LOG_SIZE,
                                                        backupCount=5)
     else:
         raise RuntimeError('log file must be set')

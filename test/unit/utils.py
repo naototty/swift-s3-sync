@@ -18,7 +18,7 @@ class FakeStream(object):
             if self.content:
                 ret = self.content[self.current_pos:]
             else:
-                ret = 'A'*(self.size - self.current_pos)
+                ret = 'A' * (self.size - self.current_pos)
             self.current_pos = self.size - 1
             return ret
 
