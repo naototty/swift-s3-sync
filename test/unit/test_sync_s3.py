@@ -1,10 +1,13 @@
 # -*- coding: UTF-8 -*-
 
+from cStringIO import StringIO
 import hashlib
 import json
 import mock
 import boto3
 from botocore.exceptions import ClientError
+from botocore.vendored.requests.exceptions import RequestException
+from swift.common import swob
 from utils import FakeStream
 from s3_sync import utils
 from s3_sync.sync_s3 import SyncS3
@@ -923,3 +926,136 @@ class TestSyncS3(unittest.TestCase):
         for swift_meta, s3_meta, expected in test_metas:
             self.assertEqual(expected,
                              SyncS3.is_object_meta_synced(s3_meta, swift_meta))
+
+    def test_shunt_object(self):
+        key = 'key'
+        body = 'some fairly large content' * (1 << 16)
+        # simulate s3proxy with filesystem backend response
+        head_response = {
+            u'ContentLength': len(body),
+            u'ContentType': 'application/unknown',
+            u'ETag': '"e06dd4228b3a7ab66aae5fbc9e4b905e"',
+            u'Metadata': {'mtime': '1497315527.000000'},
+            'ResponseMetadata': {
+                'HTTPHeaders': {
+                    'content-length': str(len(body)),
+                    'content-type': 'application/unknown',
+                    'date': 'Thu, 15 Jun 2017 00:09:25 GMT',
+                    'etag': '"e06dd4228b3a7ab66aae5fbc9e4b905e"',
+                    'last-modified': 'Wed, 14 Jun 2017 23:11:34 GMT',
+                    'server': 'Jetty(9.2.z-SNAPSHOT)',
+                    'x-amz-meta-mtime': '1497315527.000000'},
+                'HTTPStatusCode': 200,
+                'RetryAttempts': 0,
+            }
+        }
+        get_response = dict(head_response)
+        get_response[u'Body'] = StringIO(body)
+        self.mock_boto3_client.get_object.return_value = get_response
+        self.mock_boto3_client.head_object.return_value = head_response
+
+        expected_headers = [
+            # Content-Length must be properly capitalized,
+            # or eventlet will try to be "helpful"
+            ('Content-Length', str(len(body))),
+            # x-amz-meta-* get translated to X-Object-Meta-*
+            ('X-Object-Meta-mtime', '1497315527.000000'),
+            # everything else...
+            ('content-type', 'application/unknown'),
+            ('date', 'Thu, 15 Jun 2017 00:09:25 GMT'),
+            ('etag', '"e06dd4228b3a7ab66aae5fbc9e4b905e"'),
+            ('last-modified', 'Wed, 14 Jun 2017 23:11:34 GMT'),
+            ('server', 'Jetty(9.2.z-SNAPSHOT)'),
+        ]
+
+        req = swob.Request.blank('/v1/AUTH_a/c/key', method='GET')
+        status, headers, body_iter = self.sync_s3.shunt_object(req, key)
+        self.assertEqual(status, 200)
+        self.assertEqual(sorted(headers), expected_headers)
+        self.assertEqual(b''.join(body_iter), body)
+        self.assertEqual(self.mock_boto3_client.get_object.mock_calls,
+                         [mock.call(Bucket=self.aws_bucket,
+                                    Key=self.sync_s3.get_s3_name(key))])
+
+        # Again, but with HEAD
+        req.method = 'HEAD'
+        status, headers, body_iter = self.sync_s3.shunt_object(req, key)
+        self.assertEqual(status, 200)
+        self.assertEqual(sorted(headers), expected_headers)
+        self.assertEqual(b''.join(body_iter), b'')
+        self.assertEqual(self.mock_boto3_client.head_object.mock_calls,
+                         [mock.call(Bucket=self.aws_bucket,
+                                    Key=self.sync_s3.get_s3_name(key))])
+
+    def test_shunt_object_includes_some_client_headers(self):
+        key = 'key'
+        body = 'some content'
+        # minimal response
+        head_response = {
+            'ResponseMetadata': {
+                'HTTPHeaders': {},
+                'HTTPStatusCode': 304,
+            }
+        }
+        get_response = dict(head_response)
+        get_response[u'Body'] = StringIO(body)
+        self.mock_boto3_client.get_object.return_value = get_response
+        self.mock_boto3_client.head_object.return_value = head_response
+
+        req = swob.Request.blank('/v1/AUTH_a/c/key', method='GET', headers={
+            'Range': 'r',
+            'If-Match': 'im',
+            'If-None-Match': 'inm',
+            'If-Modified-Since': 'ims',
+            'If-Unmodified-Since': 'ius',
+        })
+        status, headers, body_iter = self.sync_s3.shunt_object(req, key)
+        self.assertEqual(status, 304)
+        self.assertEqual(headers, [])
+        self.assertEqual(b''.join(body_iter), body)
+        self.assertEqual(self.mock_boto3_client.get_object.mock_calls,
+                         [mock.call(Bucket=self.aws_bucket,
+                                    Key=self.sync_s3.get_s3_name(key),
+                                    Range='r',
+                                    IfMatch='im',
+                                    IfNoneMatch='inm',
+                                    IfModifiedSince='ims',
+                                    IfUnmodifiedSince='ius')])
+
+        # Again, but with HEAD
+        req.method = 'HEAD'
+        status, headers, body_iter = self.sync_s3.shunt_object(req, key)
+        self.assertEqual(status, 304)
+        self.assertEqual(headers, [])
+        self.assertEqual(b''.join(body_iter), b'')
+        self.assertEqual(self.mock_boto3_client.head_object.mock_calls,
+                         [mock.call(Bucket=self.aws_bucket,
+                                    Key=self.sync_s3.get_s3_name(key),
+                                    Range='r',
+                                    IfMatch='im',
+                                    IfNoneMatch='inm',
+                                    IfModifiedSince='ims',
+                                    IfUnmodifiedSince='ius')])
+
+    def test_shunt_object_network_error(self):
+        key = 'key'
+        self.mock_boto3_client.get_object.side_effect = RequestException
+        self.mock_boto3_client.head_object.side_effect = RequestException
+        req = swob.Request.blank('/v1/AUTH_a/c/key', method='GET')
+        status, headers, body_iter = self.sync_s3.shunt_object(req, key)
+        self.assertEqual(status, 502)
+        self.assertEqual(headers, [])
+        self.assertEqual(b''.join(body_iter), 'Bad Gateway')
+        self.assertEqual(self.mock_boto3_client.get_object.mock_calls,
+                         [mock.call(Bucket=self.aws_bucket,
+                                    Key=self.sync_s3.get_s3_name(key))])
+
+        # Again, but with HEAD
+        req.method = 'HEAD'
+        status, headers, body_iter = self.sync_s3.shunt_object(req, key)
+        self.assertEqual(status, 502)
+        self.assertEqual(headers, [])
+        self.assertEqual(b''.join(body_iter), b'')
+        self.assertEqual(self.mock_boto3_client.head_object.mock_calls,
+                         [mock.call(Bucket=self.aws_bucket,
+                                    Key=self.sync_s3.get_s3_name(key))])

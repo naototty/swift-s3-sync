@@ -17,6 +17,8 @@ class S3SyncShunt(object):
             log_route='s3_sync.shunt'))
         self.sync_profiles = {}
         for cont in conf['containers']:
+            for key in ('account', 'container'):
+                cont[key] = cont[key].encode('utf8')
             if cont.get('propagate_delete', True):
                 # object shouldn't exist in remote
                 continue
@@ -67,8 +69,35 @@ class S3SyncShunt(object):
         self.logger.debug('404 for %s; shunting to %r'
                           % (req.path, sync_profile))
 
-        provider = create_provider(sync_profile, max_conns=1)  # noqa
-        # TODO: actually shunt requests
+        # Save off any existing trans-id headers so we can add them back later
+        trans_id_headers = [(h, v) for h, v in headers if h.lower() in (
+            'x-trans-id', 'x-openstack-request-id')]
+
+        utils.close_if_possible(app_iter)
+
+        provider = create_provider(sync_profile, max_conns=1)
+        status_code, headers, app_iter = provider.shunt_object(req, obj)
+        status = '%s %s' % (status_code, swob.RESPONSE_REASONS[status_code][0])
+        self.logger.debug('Remote resp: %s' % status)
+
+        # Blacklist of known hop-by-hop headers taken from
+        # https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers
+        headers_to_remove = set([
+            'connection',
+            'keep-alive',
+            'proxy-authenticate',
+            'proxy-authorization',
+            'te',
+            'trailer',
+            'transfer-encoding',
+            'upgrade',
+        ])
+        indexes_to_remove = [
+            i for i, (header, key) in enumerate(headers)
+            if header.lower() in headers_to_remove]
+        headers = [item for i, item in enumerate(headers)
+                   if i not in indexes_to_remove]
+        headers.extend(trans_id_headers)
 
         start_response(status, headers)
         return app_iter

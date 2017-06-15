@@ -134,6 +134,52 @@ class SyncS3(BaseSync):
             s3_client = boto_client.client
             s3_client.delete_object(Bucket=self.aws_bucket, Key=s3_key)
 
+    def shunt_object(self, req, swift_key):
+        """Fetch an object from the remote cluster to stream back to a client.
+
+        :returns: (status, headers, body_iter) tuple
+        """
+        if req.method not in ('GET', 'HEAD'):
+            # sanity check
+            raise ValueError('Expected GET or HEAD, not %s' % req.method)
+
+        s3_key = self.get_s3_name(swift_key)
+        with self.client_pool.get_client() as boto_client:
+            s3_client = boto_client.client
+            headers_to_copy = ('Range', 'If-Match', 'If-None-Match',
+                               'If-Modified-Since', 'If-Unmodified-Since')
+            kwargs = {'Bucket': self.aws_bucket, 'Key': s3_key}
+            kwargs.update({
+                header.replace('-', ''): req.headers[header]
+                for header in headers_to_copy if header in req.headers})
+            try:
+                if req.method == 'GET':
+                    resp = s3_client.get_object(**kwargs)
+                    body_iter = iter(lambda: resp['Body'].read(65536), b'')
+                else:
+                    resp = s3_client.head_object(**kwargs)
+                    body_iter = ['']
+            except Exception:
+                self.logger.exception('Error contacting remote s3 cluster')
+                return 502, [], ['Bad Gateway' if req.method == 'GET' else '']
+
+            def translate(header, value):
+                if header in ('x-amz-id-2', 'x-amz-request-id'):
+                    return ('Remote-' + header, value)
+                if header.startswith('x-amz-meta-'):
+                    return ('X-Object-Meta-' + header[11:], value)
+                if header == 'content-length':
+                    # Capitalize, so eventlet doesn't try to add its own
+                    return ('Content-Length', value)
+                return (header, value)
+            headers = [
+                translate(header, value) for header, value in
+                resp['ResponseMetadata']['HTTPHeaders'].items()]
+
+            return (resp['ResponseMetadata']['HTTPStatusCode'],
+                    headers,
+                    body_iter)
+
     def upload_slo(self, swift_key, storage_policy_index, s3_meta,
                    internal_client):
         # Converts an SLO into a multipart upload. We use the segments as

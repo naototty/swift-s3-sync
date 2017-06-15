@@ -129,6 +129,55 @@ class SyncSwift(BaseSync):
                     if e.http_status != 404:
                         raise
 
+    def shunt_object(self, req, name):
+        """Fetch an object from the remote cluster to stream back to a client.
+
+        :returns: (status, headers, body_iter) tuple
+        """
+        with self.client_pool.get_client() as client:
+            swift_client = client.client
+            headers_to_copy = ('Range', 'If-Match', 'If-None-Match',
+                               'If-Modified-Since', 'If-Unmodified-Since')
+            headers = {header: req.headers[header]
+                       for header in headers_to_copy
+                       if header in req.headers}
+            headers['X-Trans-Id-Extra'] = req.environ['swift.trans_id']
+
+            def translate(header, value):
+                if header.lower() in ('x-trans-id', 'x-openstack-request-id'):
+                    return ('Remote-' + header, value)
+                if header == 'content-length':
+                    # Capitalize, so eventlet doesn't try to add its own
+                    return ('Content-Length', value)
+                return (header, value)
+
+            try:
+                if req.method == 'GET':
+                    headers, body_iter = swift_client.get_object(
+                        self.remote_container, name, resp_chunk_size=65536,
+                        headers=headers)
+                elif req.method == 'HEAD':
+                    headers = swift_client.head_object(
+                        self.remote_container, name, headers=headers)
+                    body_iter = ['']
+                else:
+                    raise ValueError('Expected GET or HEAD, not %s' %
+                                     req.method)
+
+                status = 206 if 'content-range' in headers else 200
+                headers = [translate(header, value)
+                           for header, value in headers.items()]
+                return status, headers, body_iter
+            except swiftclient.exceptions.ClientException as e:
+                headers = [
+                    translate(header, value)
+                    for header, value in e.http_response_headers.items()]
+                return (e.http_status_code, headers,
+                        [e.http_response_content])
+            except Exception:
+                self.logger.exception('Error contacting remote swift cluster')
+                return 502, [], ['Bad Gateway' if req.method == 'GET' else '']
+
     def _update_metadata(self, name, metadata):
         with self.client_pool.get_client() as client:
             swift_client = client.client
