@@ -11,7 +11,7 @@ import time
 
 import container_crawler.base_sync
 from container_crawler import RetryError
-from .base_sync import BaseSync
+from .provider_factory import create_provider
 
 
 class SyncContainer(container_crawler.base_sync.BaseSync):
@@ -22,7 +22,7 @@ class SyncContainer(container_crawler.base_sync.BaseSync):
         self.copy_after = int(sync_settings.get('copy_after', 0))
         self.retain_copy = sync_settings.get('retain_local', True)
         self.propagate_delete = sync_settings.get('propagate_delete', True)
-        self.provider = BaseSync.create(sync_settings, max_conns)
+        self.provider = create_provider(sync_settings, max_conns)
 
     def get_last_row(self, db_id):
         if not os.path.exists(self._status_file):

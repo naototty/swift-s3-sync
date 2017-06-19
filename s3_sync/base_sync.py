@@ -15,7 +15,6 @@ class BaseSync(object):
     SLO_QUEUE_SIZE = 100
     MB = 1024*1024
     GB = 1024*MB
-    __registered_subclasses = {}
 
     class HttpClientPoolEntry(object):
         def __init__(self, client, pool):
@@ -58,27 +57,6 @@ class BaseSync(object):
 
         def release(self):
             self.get_semaphore.release()
-
-    @classmethod
-    def register(cls, name):
-        def decorator(inner_cls):
-            if cls.__registered_subclasses.get(name, inner_cls) != inner_cls:
-                raise ValueError(
-                    '%r is already registered as %r; cannot register %r'
-                    % (cls.__registered_subclasses[name], name, inner_cls))
-            cls.__registered_subclasses[name] = inner_cls
-            return inner_cls
-
-        return decorator
-
-    @classmethod
-    def create(cls, settings, max_conns=10):
-        try:
-            handler_class = cls.__registered_subclasses[settings.get(
-                'protocol', 's3')]
-        except KeyError:
-            raise NotImplementedError()
-        return handler_class(settings, max_conns)
 
     def __init__(self, settings, max_conns=10):
         self.settings = settings
