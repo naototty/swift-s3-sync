@@ -29,13 +29,16 @@ class SyncS3(BaseSync):
     def __init__(self, settings, max_conns=10):
         super(SyncS3, self).__init__(settings, max_conns)
 
+    def _is_amazon(self):
+        return not self.endpoint or self.endpoint.endswith('amazonaws.com')
+
     def _google(self):
         return self.endpoint == self.GOOGLE_API
 
     def _get_client_factory(self):
         aws_identity = self.settings['aws_identity']
         aws_secret = self.settings['aws_secret']
-        self.encryption = self.settings.get('encryption', False)
+        self.encryption = self.settings.get('encryption', True)
 
         boto_session = boto3.session.Session(
             aws_access_key_id=aws_identity,
@@ -123,7 +126,7 @@ class SyncS3(BaseSync):
                 Metadata=wrapper_stream.get_s3_headers(),
                 ContentLength=len(wrapper_stream)
             )
-            if not self._google() and self.encryption:
+            if self._is_amazon() and self.encryption:
                 params['ServerSideEncryption'] = 'AES256'
             s3_client.put_object(**params)
 
@@ -330,7 +333,7 @@ class SyncS3(BaseSync):
                 Key=s3_key,
                 Metadata=convert_to_s3_headers(object_meta)
             )
-            if not self._google() and self.encryption:
+            if self._is_amazon() and self.encryption:
                 params['ServerSideEncryption'] = 'AES256'
             multipart_resp = s3_client.create_multipart_upload(**params)
         upload_id = multipart_resp['UploadId']
@@ -450,7 +453,7 @@ class SyncS3(BaseSync):
                 Key=s3_key,
                 Metadata=convert_to_s3_headers(swift_meta)
             )
-            if not self._google() and self.encryption:
+            if self._is_amazon() and self.encryption:
                 params['ServerSideEncryption'] = 'AES256'
             multipart_resp = s3_client.create_multipart_upload(**params)
 
@@ -502,7 +505,7 @@ class SyncS3(BaseSync):
                     Bucket=self.aws_bucket,
                     Key=s3_key
                 )
-                if not self._google() and self.encryption:
+                if self._is_amazon() and self.encryption:
                     params['ServerSideEncryption'] = 'AES256'
                 s3_client.copy_object(**params)
 

@@ -62,16 +62,17 @@ class TestSyncS3(unittest.TestCase):
             Key=self.sync_s3.get_s3_name(key),
             Body=wrapper,
             Metadata={},
-            ContentLength=0)
+            ContentLength=0,
+            ServerSideEncryption='AES256')
 
     @mock.patch('s3_sync.sync_s3.FileWrapper')
-    def test_upload_object_with_encryption(self, mock_file_wrapper):
+    def test_upload_object_without_encryption(self, mock_file_wrapper):
         key = 'key'
         storage_policy = 42
         swift_req_headers = {'X-Backend-Storage-Policy-Index': storage_policy,
                              'X-Newest': True}
 
-        self.sync_s3.encryption = True
+        self.sync_s3.endpoint = 'http://127.0.0.1:8080'
 
         wrapper = mock.Mock()
         wrapper.__len__ = lambda s: 0
@@ -96,8 +97,7 @@ class TestSyncS3(unittest.TestCase):
             Key=self.sync_s3.get_s3_name(key),
             Body=wrapper,
             Metadata={},
-            ContentLength=0,
-            ServerSideEncryption='AES256')
+            ContentLength=0)
 
     @mock.patch('s3_sync.sync_s3.FileWrapper')
     def test_google_upload_encryption(self, mock_file_wrapper):
@@ -106,8 +106,7 @@ class TestSyncS3(unittest.TestCase):
         swift_req_headers = {'X-Backend-Storage-Policy-Index': storage_policy,
                              'X-Newest': True}
 
-        self.sync_s3.encryption = True
-        self.sync_s3._google = lambda: True
+        self.sync_s3.endpoint = 'https://storage.googleapis.com'
 
         wrapper = mock.Mock()
         wrapper.__len__ = lambda s: 0
@@ -174,7 +173,8 @@ class TestSyncS3(unittest.TestCase):
             Key=u"356b9d/account/container/" + key.decode('utf-8'),
             Body=wrapper,
             Metadata={},
-            ContentLength=0)
+            ContentLength=0,
+            ServerSideEncryption='AES256')
 
     def test_upload_changed_meta(self):
         key = 'key'
@@ -198,9 +198,10 @@ class TestSyncS3(unittest.TestCase):
             MetadataDirective='REPLACE',
             Bucket=self.aws_bucket,
             Key=self.sync_s3.get_s3_name(key),
-            Metadata={'new': 'new', 'old': 'updated'})
+            Metadata={'new': 'new', 'old': 'updated'},
+            ServerSideEncryption='AES256')
 
-    def test_upload_changed_meta_encryption(self):
+    def test_upload_changed_meta_no_encryption(self):
         key = 'key'
         storage_policy = 42
         etag = '1234'
@@ -213,7 +214,7 @@ class TestSyncS3(unittest.TestCase):
             'Metadata': {'old': 'old'},
             'ETag': '"%s"' % etag
         }
-        self.sync_s3.encryption = True
+        self.sync_s3.endpoint = 'http://127.0.0.1:8080'
 
         self.sync_s3.upload_object(key, storage_policy, mock_ic)
 
@@ -223,8 +224,7 @@ class TestSyncS3(unittest.TestCase):
             MetadataDirective='REPLACE',
             Bucket=self.aws_bucket,
             Key=self.sync_s3.get_s3_name(key),
-            Metadata={'new': 'new', 'old': 'updated'},
-            ServerSideEncryption='AES256')
+            Metadata={'new': 'new', 'old': 'updated'})
 
     def test_upload_changed_meta_google_encryption(self):
         key = 'key'
@@ -239,8 +239,7 @@ class TestSyncS3(unittest.TestCase):
             'Metadata': {'old': 'old'},
             'ETag': '"%s"' % etag
         }
-        self.sync_s3.encryption = True
-        self.sync_s3._google = lambda: True
+        self.sync_s3.endpoint = 'https://storage.googleapis.com'
 
         self.sync_s3.upload_object(key, storage_policy, mock_ic)
 
@@ -287,7 +286,8 @@ class TestSyncS3(unittest.TestCase):
             Key=self.sync_s3.get_s3_name(key),
             Metadata={'new': 'new', 'old': 'updated'},
             Body=wrapper,
-            ContentLength=0)
+            ContentLength=0,
+            ServerSideEncryption='AES256')
 
     @mock.patch('s3_sync.sync_s3.FileWrapper')
     def test_upload_replace_object(self, mock_file_wrapper):
@@ -316,7 +316,8 @@ class TestSyncS3(unittest.TestCase):
             Key=self.sync_s3.get_s3_name(key),
             Metadata={'new': 'new', 'old': 'updated'},
             Body=wrapper,
-            ContentLength=42)
+            ContentLength=42,
+            ServerSideEncryption='AES256')
 
     def test_upload_same_object(self):
         key = 'key'
@@ -589,7 +590,8 @@ class TestSyncS3(unittest.TestCase):
         self.mock_boto3_client.create_multipart_upload.assert_called_once_with(
             Bucket=self.aws_bucket,
             Key=self.sync_s3.get_s3_name(slo_key),
-            Metadata={'foo': 'bar'})
+            Metadata={'foo': 'bar'},
+            ServerSideEncryption='AES256')
         self.mock_boto3_client.upload_part.assert_has_calls([
             mock.call(Bucket=self.aws_bucket,
                       Key=self.sync_s3.get_s3_name(slo_key),
@@ -802,7 +804,8 @@ class TestSyncS3(unittest.TestCase):
 
         self.mock_boto3_client.create_multipart_upload.assert_called_once_with(
             Bucket=self.aws_bucket, Key=s3_key,
-            Metadata={'new-key': 'foo', 'other-key': 'bar'})
+            Metadata={'new-key': 'foo', 'other-key': 'bar'},
+            ServerSideEncryption='AES256')
         self.mock_boto3_client.upload_part_copy.assert_has_calls([
             mock.call(Bucket=self.aws_bucket, Key=s3_key, PartNumber=1,
                       CopySource={'Bucket': self.aws_bucket, 'Key': s3_key},
@@ -850,7 +853,6 @@ class TestSyncS3(unittest.TestCase):
 
         self.mock_boto3_client.upload_part_copy.side_effect = upload_part_copy
 
-        self.sync_s3.encryption = True
         self.sync_s3.update_slo_metadata(slo_meta, manifest, s3_key, {},
                                          mock_ic)
 
