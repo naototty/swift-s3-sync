@@ -180,6 +180,43 @@ class SyncS3(BaseSync):
                     headers,
                     body_iter)
 
+    def list_objects(self, marker, limit, prefix, delimiter):
+        if limit > 1000:
+            limit = 1000
+        args = dict(Bucket=self.aws_bucket)
+        args['MaxKeys'] = limit
+        # Works around an S3 proxy bug where empty-string prefix and delimiter
+        # still results in a listing with CommonPrefixes and no objects
+        if marker:
+            args['Marker'] = marker.decode('utf-8')
+        if delimiter:
+            args['Delimiter'] = delimiter.decode('utf-8')
+        try:
+            with self.client_pool.get_client() as boto_client:
+                s3_client = boto_client.client
+                s3_prefix = '%s/%s/%s' % (
+                    self.get_prefix(), self.account, self.container)
+                args['Prefix'] = '%s/%s' % (s3_prefix, prefix.decode('utf-8'))
+                resp = s3_client.list_objects(**args)
+                # s3proxy does not include the ETag information when used with
+                # the filesystem provider
+                key_offset = len(s3_prefix) + 1
+                keys = [dict(hash=row.get('ETag', '').replace('"', ''),
+                             name=urllib.unquote(row['Key'])[key_offset:],
+                             last_modified=row['LastModified'].isoformat(),
+                             bytes=row['Size'],
+                             # S3 does not include content-type in listings
+                             content_type='application/octet-stream')
+                        for row in resp.get('Contents', [])]
+                prefixes = [
+                    dict(subdir=urllib.unquote(row['Prefix'])[key_offset:])
+                    for row in resp.get('CommonPrefixes', [])]
+                return (200, sorted(
+                    keys + prefixes,
+                    key=lambda x: x['name'] if 'name' in x else x['subdir']))
+        except botocore.exceptions.ClientError as e:
+            return (e.response['Error']['Code'], e.message)
+
     def upload_slo(self, swift_key, storage_policy_index, s3_meta,
                    internal_client):
         # Converts an SLO into a multipart upload. We use the segments as
@@ -391,12 +428,14 @@ class SyncS3(BaseSync):
             finally:
                 queue.task_done()
 
-    def get_s3_name(self, key):
+    def get_prefix(self):
         md5_hash = hashlib.md5('%s/%s' % (
             self.account, self.container)).hexdigest()
         # strip off 0x and L
-        prefix = hex(long(md5_hash, 16) % self.PREFIX_SPACE)[2:-1]
-        return '%s/%s' % (prefix, self._full_name(key))
+        return hex(long(md5_hash, 16) % self.PREFIX_SPACE)[2:-1]
+
+    def get_s3_name(self, key):
+        return '%s/%s' % (self.get_prefix(), self._full_name(key))
 
     def update_slo_metadata(self, swift_meta, manifest, s3_key, req_headers,
                             internal_client):

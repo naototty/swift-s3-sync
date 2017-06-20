@@ -1,3 +1,4 @@
+from lxml import etree
 import json
 
 from swift.common import constraints, swob, utils
@@ -41,6 +42,9 @@ class S3SyncShunt(object):
         if not constraints.valid_api_version(vers):
             return self.app(env, start_response)
 
+        if not cont:
+            return self.app(env, start_response)
+
         sync_profile = next((self.sync_profiles[(acct, c)]
                              for c in (cont, '/*')
                              if (acct, c) in self.sync_profiles), None)
@@ -48,24 +52,104 @@ class S3SyncShunt(object):
             return self.app(env, start_response)
 
         if not obj and req.method == 'GET':
-            return self.handle_listing(req, start_response, sync_profile)
+            return self.handle_listing(req, start_response, sync_profile, cont)
         elif obj and req.method in ('GET', 'HEAD'):
             # TODO: think about what to do for POST, COPY
             return self.handle_object(req, start_response, sync_profile, obj)
         return self.app(env, start_response)
 
-    def handle_container_listing(self, req, start_response, sync_profile):
+    def handle_listing(self, req, start_response, sync_profile, cont):
+        limit = int(req.params.get(
+            'limit', constraints.CONTAINER_LISTING_LIMIT))
+        marker = req.params.get('marker', '')
+        prefix = req.params.get('prefix', '')
+        delimiter = req.params.get('delimiter', '')
+        path = req.params.get('path', None)
+        if path:
+            # We do not support the path parameter in listings
+            status, headers, app_iter = req.call_application(self.app)
+            start_response(status, headers)
+            return app_iter
+
+        req_format = req.params.get('format', None)
+        # We always make the request with the json format and convert to the
+        # client-expected response.
+        req.params = dict(req.params, format='json')
         status, headers, app_iter = req.call_application(self.app)
         if not status.startswith(('200 ', '204 ')):
             # Only splice 2XX
             start_response(status, headers)
             return app_iter
 
+        if sync_profile['container'] == '/*':
+            sync_profile['container'] = cont
         provider = create_provider(sync_profile, max_conns=1)  # noqa
-        # TODO: do some listings matching the client query, splice
+        cloud_status, resp = provider.list_objects(
+            marker, limit, prefix, delimiter)
+        if cloud_status != 200:
+            self.logger.error('Failed to list the remote store: %s' % resp)
+            resp = []
+        if not resp:
+            start_response(status, headers)
+            return app_iter
 
-        start_response(status, headers)
-        return app_iter
+        internal_resp = json.load(utils.FileLikeIter(app_iter))
+        spliced_response = []
+        internal_index = 0
+        cloud_index = 0
+        while True:
+            if len(spliced_response) == limit:
+                break
+
+            if len(resp) == cloud_index and \
+                    len(internal_resp) == internal_index:
+                break
+
+            if internal_index < len(internal_resp):
+                if 'name' in internal_resp[internal_index]:
+                    internal_name = internal_resp[internal_index]['name']
+                elif 'subdir' in internal_resp[internal_index]:
+                    internal_name = internal_resp[internal_index]['subdir']
+            else:
+                internal_name = None
+
+            if cloud_index < len(resp):
+                if 'name' in resp[cloud_index]:
+                    cloud_name = resp[cloud_index]['name']
+                else:
+                    cloud_name = resp[cloud_index]['subdir']
+            else:
+                cloud_name = None
+
+            if cloud_name is not None:
+                if internal_name is None or \
+                        (internal_name is not None and \
+                         cloud_name <= internal_name):
+                    spliced_response.append(resp[cloud_index])
+                    cloud_index += 1
+                    if len(resp) == cloud_index:
+                        cloud_status, resp = provider.list_objects(
+                            cloud_name, limit, prefix, delimiter)
+                        if cloud_status != 200:
+                            self.logger.error(
+                                'Failed to list the remote store: %s' % resp)
+                            resp = []
+                        cloud_index = 0
+                    continue
+            spliced_response.append(internal_resp[internal_index])
+            internal_index += 1
+
+        res = self._format_listing_response(spliced_response, req_format, cont)
+        dict_headers = dict(headers)
+        dict_headers['Content-Length'] = len(res)
+        if req_format == 'json':
+            dict_headers['Content-Type'] = 'application/json'
+        elif req_format == 'xml':
+            dict_headers['Content-Type'] = 'application/xml'
+        else:
+            dict_headers['Content-Type'] = 'text/plain'
+        start_response(status, dict_headers.items())
+        return res
 
     def handle_object(self, req, start_response, sync_profile, obj):
         status, headers, app_iter = req.call_application(self.app)
@@ -108,6 +192,35 @@ class S3SyncShunt(object):
 
         start_response(status, headers)
         return app_iter
+
+    @staticmethod
+    def _format_listing_response(list_results, list_format, container):
+        if list_format == 'json':
+            return json.dumps(list_results)
+        if list_format == 'xml':
+            fields = ['name', 'content_type', 'hash', 'bytes', 'last_modified',
+                      'subdir']
+            root = etree.Element('container', name=container)
+            for entry in list_results:
+                obj = etree.Element('object')
+                for f in fields:
+                    if f not in entry:
+                        continue
+                    el = etree.Element(f)
+                    text = entry[f]
+                    if type(text) == str:
+                        text = text.decode('utf-8')
+                    elif type(text) == int:
+                        text = str(text)
+                    el.text = text
+                    obj.append(el)
+                root.append(obj)
+            resp = etree.tostring(root, encoding='UTF-8', xml_declaration=True)
+            return resp.replace("<?xml version='1.0' encoding='UTF-8'?>",
+                                '<?xml version="1.0" encoding="UTF-8"?>', 1)
+
+        # Default to plain format
+        return '\n'.join([entry['name'] for entry in list_results])
 
 
 def filter_factory(global_conf, **local_conf):

@@ -178,6 +178,17 @@ class SyncSwift(BaseSync):
                 self.logger.exception('Error contacting remote swift cluster')
                 return 502, [], ['Bad Gateway' if req.method == 'GET' else '']
 
+    def list_objects(self, marker, limit, prefix, delimiter):
+        try:
+            with self.client_pool.get_client() as client:
+                swift_client = client.client
+                hdrs, results = swift_client.get_container(
+                    self.remote_container, marker=marker, limit=limit,
+                    prefix=prefix, delimiter=delimiter)
+                return (200, results)
+        except swiftclient.exceptions.ClientException as e:
+            return (e.http_status, e.message)
+
     def _update_metadata(self, name, metadata):
         with self.client_pool.get_client() as client:
             swift_client = client.client

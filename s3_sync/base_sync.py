@@ -86,6 +86,12 @@ class BaseSync(object):
     def delete_object(self, name):
         raise NotImplementedError()
 
+    def shunt_object(self, request, name):
+        raise NotImplementedError()
+
+    def list_objects(self, marker, limit, prefix, delimiter):
+        raise NotImplementedError()
+
     def _get_client_factory(self):
         raise NotImplementedError()
 

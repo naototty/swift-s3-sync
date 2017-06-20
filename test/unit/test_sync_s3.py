@@ -1,6 +1,7 @@
 # -*- coding: UTF-8 -*-
 
 from cStringIO import StringIO
+import datetime
 import hashlib
 import json
 import mock
@@ -1059,3 +1060,60 @@ class TestSyncS3(unittest.TestCase):
         self.assertEqual(self.mock_boto3_client.head_object.mock_calls,
                          [mock.call(Bucket=self.aws_bucket,
                                     Key=self.sync_s3.get_s3_name(key))])
+
+    def test_list_objects(self):
+        prefix = '%s/%s/%s' % (self.sync_s3.get_prefix(), self.sync_s3.account,
+                               self.sync_s3.container)
+        now_date = datetime.datetime.now()
+        self.mock_boto3_client.list_objects.return_value = {
+            'Contents': [
+                dict(Key='%s/%s' % (prefix, 'barù'.decode('utf-8')),
+                     ETag='"badbeef"',
+                     Size=42,
+                     LastModified=now_date),
+                dict(Key='%s/%s' % (prefix, 'foo'),
+                     ETag='"deadbeef"',
+                     Size=1024,
+                     LastModified=now_date)
+            ],
+            'CommonPrefixes': [
+                dict(Prefix='%s/afirstpref' % prefix),
+                dict(Prefix='%s/preflast' % prefix),
+            ]
+        }
+
+        status, ret = self.sync_s3.list_objects('marker', 10, 'prefix', '-')
+        self.mock_boto3_client.list_objects.assert_called_once_with(
+            Bucket=self.aws_bucket,
+            Prefix='%s/prefix' % prefix,
+            Delimiter='-',
+            MaxKeys=10,
+            Marker='marker')
+        self.assertEqual(200, status)
+        self.assertEqual(dict(subdir='afirstpref'), ret[0])
+        self.assertEqual(dict(subdir='preflast'), ret[3])
+        self.assertEqual(dict(
+            hash='badbeef',
+            name=u'bar\xf9',
+            bytes=42,
+            last_modified=now_date.isoformat(),
+            content_type='application/octet-stream'), ret[1])
+        self.assertEqual(dict(
+            hash='deadbeef',
+            name='foo',
+            bytes=1024,
+            last_modified=now_date.isoformat(),
+            content_type='application/octet-stream'), ret[2])
+
+    def test_list_objects_error(self):
+        self.mock_boto3_client.list_objects.side_effect = ClientError(
+            dict(Error=dict(Code=500)), 'failed to list!')
+        prefix = '%s/%s/%s/' % (self.sync_s3.get_prefix(),
+                                self.sync_s3.account, self.sync_s3.container)
+
+        status, ret = self.sync_s3.list_objects('', 10, '', '')
+        self.mock_boto3_client.list_objects.assert_called_once_with(
+            Bucket=self.aws_bucket,
+            Prefix=prefix,
+            MaxKeys=10)
+        self.assertEqual(500, status)
