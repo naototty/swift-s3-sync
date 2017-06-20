@@ -17,6 +17,6 @@ setup(name='swift-s3-sync',
               'swift-s3-sync = s3_sync.__main__:main'
           ],
           'paste.filter_factory': [
-              's3-sync-shunt = s3_sync.shunt:filter_factory'
+              'cloud-shunt = s3_sync.shunt:filter_factory'
           ],
       })
