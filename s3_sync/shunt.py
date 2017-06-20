@@ -9,12 +9,19 @@ from .provider_factory import create_provider
 
 class S3SyncShunt(object):
     def __init__(self, app, conf_file, conf):
-        self.app = app
-        with open(conf_file, 'rb') as fp:
-            conf = json.load(fp)
         self.logger = fix_mw_logging(utils.get_logger(
             conf, name='proxy-server:s3_sync.shunt',
             log_route='s3_sync.shunt'))
+
+        self.app = app
+        try:
+            with open(conf_file, 'rb') as fp:
+                conf = json.load(fp)
+        except (IOError, ValueError) as err:
+            self.logger.warning("Couldn't read conf_file %r: %s; disabling",
+                                conf_file, err)
+            conf = {'containers': []}
+
         self.sync_profiles = {}
         for cont in conf['containers']:
             for key in ('account', 'container'):

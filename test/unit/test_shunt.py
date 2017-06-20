@@ -94,6 +94,24 @@ class TestShunt(unittest.TestCase):
         for patcher in self.patchers:
             patcher.__exit__()
 
+    def test_bad_config_noops(self):
+        app = shunt.filter_factory(
+            {'conf_file': '/etc/doesnt/exist'})(FakeSwift())
+        self.assertEqual(app.sync_profiles, {})
+
+        with tempfile.NamedTemporaryFile() as fp:
+            # empty
+            app = shunt.filter_factory(
+                {'conf_file': fp.name})(FakeSwift())
+            self.assertEqual(app.sync_profiles, {})
+
+            # not json
+            fp.write('{"containers":')
+            fp.flush()
+            app = shunt.filter_factory(
+                {'conf_file': fp.name})(FakeSwift())
+            self.assertEqual(app.sync_profiles, {})
+
     def test_init(self):
         self.maxDiff = None
         self.assertEqual(self.app.sync_profiles, {
