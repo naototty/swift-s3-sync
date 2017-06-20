@@ -1,3 +1,25 @@
+## 0.1.7 (2017-06-20)
+
+Features:
+
+    - When uploading data to Amazon S3, AES256 Server-Side encryption will be
+      used by default.
+    - Added middleware to allow for LIST and GET of objects that may have been
+      archived to the remote bucket.
+
+Bug fixes:
+
+    - Supply content-length with Swift objects on PUT. This ensures that we can
+      upload a 0-sized object.
+    - Fixed Swift DELETE propagation. Previously, DELETE requests would fail due
+      to a missing parameter.
+
+Known issues:
+
+    - Sync all containers is currently not working as intended with Swift. It
+      places all of the objects in one container. Will address in a subsequent
+      release.
+
 ## 0.1.6 (2017-06-02)
 
 Bug fixes:
