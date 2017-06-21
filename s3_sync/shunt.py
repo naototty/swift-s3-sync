@@ -79,8 +79,8 @@ class S3SyncShunt(object):
         # client-expected response.
         req.params = dict(req.params, format='json')
         status, headers, app_iter = req.call_application(self.app)
-        if not status.startswith(('200 ', '204 ')):
-            # Only splice 2XX
+        if not status.startswith('200 '):
+            # Only splice 200 (since it's JSON, we know there won't be a 204)
             start_response(status, headers)
             return app_iter
 
