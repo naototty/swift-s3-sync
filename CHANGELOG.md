@@ -1,3 +1,10 @@
+## 0.1.8 (2017-06-21)
+
+Bug fixes:
+
+    - When syncing *all* containers in an account, the middleware needs to use
+      the requested container when looking up the object in S3.
+
 ## 0.1.7 (2017-06-20)
 
 Features:
