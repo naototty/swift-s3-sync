@@ -87,6 +87,14 @@ def main():
     from .sync_container import SyncContainer
     logger = logging.getLogger('s3-sync')
     logger.debug('Starting S3Sync')
+
+    if 'http_proxy' in conf:
+        logger.debug('Using HTTP proxy %r', conf['http_proxy'])
+        os.environ['http_proxy'] = conf['http_proxy']
+    if 'https_proxy' in conf:
+        logger.debug('Using HTTPS proxy %r', conf['https_proxy'])
+        os.environ['https_proxy'] = conf['https_proxy']
+
     try:
         crawler = ContainerCrawler(conf, SyncContainer, logger)
         if args.once:
