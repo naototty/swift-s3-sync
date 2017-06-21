@@ -9,9 +9,9 @@ from .utils import (FileWrapper, check_slo, SWIFT_USER_META_PREFIX)
 
 
 class SyncSwift(BaseSync):
-    def __init__(self, settings, max_conns=10):
-        super(SyncSwift, self).__init__(settings, max_conns)
-        self.remote_container = self.aws_bucket
+    @property
+    def remote_container(self):
+        return self.aws_bucket
 
     def _get_client_factory(self):
         # TODO: support LDAP auth

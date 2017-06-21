@@ -26,9 +26,6 @@ class SyncS3(BaseSync):
     CLOUD_SYNC_VERSION = '5.0'
     GOOGLE_UA_STRING = 'CloudSync/%s (GPN:SwiftStack)' % CLOUD_SYNC_VERSION
 
-    def __init__(self, settings, max_conns=10):
-        super(SyncS3, self).__init__(settings, max_conns)
-
     def _is_amazon(self):
         return not self.endpoint or self.endpoint.endswith('amazonaws.com')
 

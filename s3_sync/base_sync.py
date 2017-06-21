@@ -63,6 +63,8 @@ class BaseSync(object):
         self.account = settings['account']
         self.container = settings['container']
         self.logger = logging.getLogger('s3-sync')
+        if '/' in self.container:
+            raise ValueError('Invalid container name %r' % self.container)
 
         # Due to the genesis of this project, the endpoint and bucket have the
         # "aws_" prefix, even though the endpoint may actually be a Swift

@@ -248,6 +248,8 @@ class TestShunt(unittest.TestCase):
                 self.mock_shunt_swift.reset_mock()
         _test_shunted(u'/v1/AUTH_a/sw\u00e9ft/o', False)
         _test_shunted('/v1/AUTH_a/s3/o', True)
+        _test_shunted('/v1/AUTH_b/c1/o', True)
+        _test_shunted('/v1/AUTH_b/c2/o', True)
 
     def test_list_container_no_shunt(self):
         req = swob.Request.blank(
@@ -365,6 +367,23 @@ class TestShunt(unittest.TestCase):
         create_mock.assert_called_once_with({
             'account': 'AUTH_b',
             'container': 's3',
+            'propagate_delete': False,
+            'aws_bucket': 'dest-bucket',
+            'aws_identity': 'user',
+            'aws_secret': 'key'}, max_conns=1)
+
+        # Follow it up with another request to a *different* container to make
+        # sure we didn't bleed state
+        create_mock.reset_mock()
+        req = swob.Request.blank(
+            '/v1/AUTH_b/s4',
+            environ={'__test__.status': '200 OK',
+                     '__test__.body': '[]',
+                     'swift.trans_id': 'id'})
+        status, headers, body_iter = req.call_application(self.app)
+        create_mock.assert_called_once_with({
+            'account': 'AUTH_b',
+            'container': 's4',
             'propagate_delete': False,
             'aws_bucket': 'dest-bucket',
             'aws_identity': 'user',

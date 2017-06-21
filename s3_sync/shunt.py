@@ -50,6 +50,9 @@ class S3SyncShunt(object):
                              if (acct, c) in self.sync_profiles), None)
         if sync_profile is None:
             return self.app(env, start_response)
+        # If mapping all containers, make a new profile for just this request
+        if sync_profile['container'] == '/*':
+            sync_profile = dict(sync_profile, container=cont)
 
         if not obj and req.method == 'GET':
             return self.handle_listing(req, start_response, sync_profile, cont)
@@ -81,8 +84,6 @@ class S3SyncShunt(object):
             start_response(status, headers)
             return app_iter
 
-        if sync_profile['container'] == '/*':
-            sync_profile['container'] = cont
         provider = create_provider(sync_profile, max_conns=1)  # noqa
         cloud_status, resp = provider.list_objects(
             marker, limit, prefix, delimiter)
