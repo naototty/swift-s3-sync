@@ -159,6 +159,10 @@ class SyncS3(BaseSync):
                 else:
                     resp = s3_client.head_object(**kwargs)
                     body_iter = ['']
+            except botocore.exceptions.ClientError as e:
+                return (e.response['ResponseMetadata']['HTTPStatusCode'],
+                        e.response['ResponseMetadata']['HTTPHeaders'].items(),
+                        e.response['Error']['Message'])
             except Exception:
                 self.logger.exception('Error contacting remote s3 cluster')
                 return 502, [], ['Bad Gateway' if req.method == 'GET' else '']
