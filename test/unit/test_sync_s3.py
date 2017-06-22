@@ -966,7 +966,7 @@ class TestSyncS3(unittest.TestCase):
             # everything else...
             ('content-type', 'application/unknown'),
             ('date', 'Thu, 15 Jun 2017 00:09:25 GMT'),
-            ('etag', '"e06dd4228b3a7ab66aae5fbc9e4b905e"'),
+            ('etag', 'e06dd4228b3a7ab66aae5fbc9e4b905e'),
             ('last-modified', 'Wed, 14 Jun 2017 23:11:34 GMT'),
             ('server', 'Jetty(9.2.z-SNAPSHOT)'),
         ]

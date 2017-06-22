@@ -175,6 +175,9 @@ class SyncS3(BaseSync):
                 if header == 'content-length':
                     # Capitalize, so eventlet doesn't try to add its own
                     return ('Content-Length', value)
+                if header == 'etag':
+                    # S3 returns ETag in quotes
+                    return ('etag', value[1:-1])
                 return (header, value)
             headers = [
                 translate(header, value) for header, value in
