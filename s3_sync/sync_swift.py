@@ -172,7 +172,7 @@ class SyncSwift(BaseSync):
                 headers = [
                     translate(header, value)
                     for header, value in e.http_response_headers.items()]
-                return (e.http_status_code, headers,
+                return (e.http_status, headers,
                         [e.http_response_content])
             except Exception:
                 self.logger.exception('Error contacting remote swift cluster')
