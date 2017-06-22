@@ -1,3 +1,10 @@
+## 0.1.11 (2017-06-22)
+
+Bug fixes:
+
+    - When returning S3 objects or their metadata, we should unquote the ETag,
+      as that would match the expected output from Swift.
+
 ## 0.1.10 (2017-06-21)
 
 Bug fixes:
