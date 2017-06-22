@@ -1,3 +1,10 @@
+## 0.1.9 (2017-06-21)
+
+Bug fixes:
+
+    - The shunt should propagate errors encountered from S3 (e.g. 404) to the
+      client, as opposed to always returning 502.
+
 ## 0.1.8 (2017-06-21)
 
 Bug fixes:
