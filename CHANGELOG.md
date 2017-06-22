@@ -1,3 +1,10 @@
+## 0.1.10 (2017-06-21)
+
+Bug fixes:
+
+    - The shunt was incorrectly referencing an exception attribute when
+      encountering errors from Swift (e.http_status_code vs e.http_status).
+
 ## 0.1.9 (2017-06-21)
 
 Bug fixes:
