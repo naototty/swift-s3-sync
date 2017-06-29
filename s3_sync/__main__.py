@@ -3,6 +3,7 @@ import json
 import logging
 import logging.handlers
 import os
+import sys
 import time
 import traceback
 
@@ -56,7 +57,7 @@ def load_config(conf_file):
         return json.load(f)
 
 
-def parse_args():
+def parse_args(args):
     parser = argparse.ArgumentParser(
         description='Swift-S3 synchronization daemon')
     parser.add_argument('--config', metavar='conf', type=str, required=True,
@@ -64,21 +65,22 @@ def parse_args():
     parser.add_argument('--once', action='store_true',
                         help='run once')
     parser.add_argument('--log-level', metavar='level', type=str,
-                        default='info',
                         choices=['debug', 'info', 'warning', 'error'],
                         help='logging level; defaults to info')
     parser.add_argument('--console', action='store_true',
                         help='log messages to console')
-    return parser.parse_args()
+    return parser.parse_args(args)
 
 
 def main():
-    args = parse_args()
+    args = parse_args(sys.argv[1:])
     if not os.path.exists(args.config):
         print 'Configuration file does not exist'
         exit(0)
 
     conf = load_config(args.config)
+    if not args.log_level:
+        args.log_level = conf.get('log_level', 'info')
     setup_logger(console=args.console, level=args.log_level.upper(),
                  log_file=conf.get('log_file'))
 
@@ -105,6 +107,7 @@ def main():
         logger.error("S3Sync failed: %s" % repr(e))
         logger.error(traceback.format_exc(e))
         exit(1)
+
 
 if __name__ == '__main__':
     main()
