@@ -553,6 +553,52 @@ class TestSyncS3(unittest.TestCase):
         mock_ic.get_object.assert_called_once_with(
             'account', 'container', slo_key, headers=swift_req_headers)
 
+    def test_google_slo_metadata_update(self):
+        self.sync_s3._google = lambda: True
+        self.sync_s3._is_amazon = lambda: False
+        s3_key = self.sync_s3.get_s3_name('slo-object')
+        slo_key = 'slo-object'
+        storage_policy = 42
+
+        manifest = [{'name': '/segment_container/slo-object/part1',
+                     'hash': 'deadbeef',
+                     'bytes': 5 * SyncS3.MB},
+                    {'name': '/segment_container/slo-object/part2',
+                     'hash': 'beefdead',
+                     'bytes': 200}]
+
+        self.mock_boto3_client.head_object.return_value = {
+            'Metadata': {utils.SLO_ETAG_FIELD: 'swift-slo-etag'}}
+
+        def get_metadata(account, container, key, headers):
+            if key == slo_key:
+                return {utils.SLO_HEADER: 'True',
+                        'x-object-meta-foo': 'bar'}
+            raise RuntimeError('Unknown key')
+
+        def get_object(account, container, key, headers):
+            if key == slo_key:
+                return (200, {'etag': 'swift-slo-etag',
+                              'x-object-meta-foo': 'bar',
+                              utils.SLO_HEADER: 'True'},
+                        FakeStream(content=json.dumps(manifest)))
+            raise RuntimeError('Unknown key!')
+
+        mock_ic = mock.Mock()
+        mock_ic.get_object_metadata.side_effect = get_metadata
+        mock_ic.get_object.side_effect = get_object
+
+        self.sync_s3.upload_object(slo_key, storage_policy, mock_ic)
+
+        self.mock_boto3_client.copy_object.assert_called_with(
+            CopySource={'Bucket': self.aws_bucket,
+                        'Key': s3_key},
+            MetadataDirective='REPLACE',
+            Bucket=self.aws_bucket,
+            Key=s3_key,
+            Metadata={utils.SLO_ETAG_FIELD: 'swift-slo-etag',
+                      'foo': 'bar'})
+
     @mock.patch('s3_sync.sync_s3.FileWrapper')
     def test_internal_slo_upload(self, mock_file_wrapper):
         slo_key = 'slo-object'
@@ -910,7 +956,7 @@ class TestSyncS3(unittest.TestCase):
                         'lower': 'lower'},
                        True),
                       ({'x-object-meta-foo': 'foo',
-                        'x-object-meta-foo': 'bar'},
+                        'x-object-meta-bar': 'bar'},
                        {'foo': 'not foo',
                         'bar': 'bar'},
                        False),

@@ -500,12 +500,15 @@ class SyncS3(BaseSync):
             s3_key, convert_to_s3_headers(swift_meta)))
         with self.client_pool.get_client() as boto_client:
             s3_client = boto_client.client
-            if not check_slo(swift_meta):
+            if not check_slo(swift_meta) or self._google():
+                meta = convert_to_s3_headers(swift_meta)
+                if self._google() and check_slo(swift_meta):
+                    meta[SLO_ETAG_FIELD] = swift_meta['etag']
                 params = dict(
                     CopySource={'Bucket': self.aws_bucket,
                                 'Key': s3_key},
                     MetadataDirective='REPLACE',
-                    Metadata=convert_to_s3_headers(swift_meta),
+                    Metadata=meta,
                     Bucket=self.aws_bucket,
                     Key=s3_key
                 )
