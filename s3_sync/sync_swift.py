@@ -11,7 +11,11 @@ from .utils import (FileWrapper, check_slo, SWIFT_USER_META_PREFIX)
 class SyncSwift(BaseSync):
     @property
     def remote_container(self):
-        return self.aws_bucket
+        if not self._per_account:
+            return self.aws_bucket
+        else:
+            # In this case the aws_bucket is treated as a prefix
+            return self.aws_bucket + self.container
 
     def _get_client_factory(self):
         # TODO: support LDAP auth

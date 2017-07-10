@@ -22,7 +22,8 @@ class SyncContainer(container_crawler.base_sync.BaseSync):
         self.copy_after = int(sync_settings.get('copy_after', 0))
         self.retain_copy = sync_settings.get('retain_local', True)
         self.propagate_delete = sync_settings.get('propagate_delete', True)
-        self.provider = create_provider(sync_settings, max_conns)
+        self.provider = create_provider(sync_settings, max_conns,
+                                        per_account=self._per_account)
 
     def get_last_row(self, db_id):
         if not os.path.exists(self._status_file):

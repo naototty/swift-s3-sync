@@ -58,11 +58,27 @@ class BaseSync(object):
         def release(self):
             self.get_semaphore.release()
 
-    def __init__(self, settings, max_conns=10):
+    def __init__(self, settings, max_conns=10, per_account=False):
+        """Base class that every Cloud Sync provider implementation should
+        derive from. Sets up the client pool for the provider and the common
+        settings.
+
+        Arguments:
+        settings -- all of the settings for the provider. Required keys are:
+            account -- Swift account
+            container -- Swift container
+            Other required keys are provider-dependent.
+
+        Keyword arguments:
+        max_conns -- maximum number of connections the pool should support.
+        per_account -- whether the sync is per-account, where all containers
+                       are synced.
+        """
         self.settings = settings
         self.account = settings['account']
         self.container = settings['container']
         self.logger = logging.getLogger('s3-sync')
+        self._per_account = per_account
         if '/' in self.container:
             raise ValueError('Invalid container name %r' % self.container)
 

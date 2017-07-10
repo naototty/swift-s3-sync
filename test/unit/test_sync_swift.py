@@ -469,3 +469,21 @@ class TestSyncSwift(unittest.TestCase):
             mock.call(self.aws_bucket, key, headers={
                 'X-Trans-Id-Extra': 'local transaction id',
             })])
+
+    @mock.patch('s3_sync.sync_swift.swiftclient.client.Connection')
+    def test_per_account_bucket(self, mock_swift):
+        mock_swift.return_value = mock.Mock()
+
+        # in this case, the "bucket" is actually the prefix
+        aws_bucket = 'sync_'
+        scratch_space = 'scratch'
+        sync_swift = SyncSwift(
+            {'aws_bucket': aws_bucket,
+             'aws_identity': 'identity',
+             'aws_secret': 'credential',
+             'account': 'account',
+             'container': 'container',
+             'aws_endpoint': 'http://swift.url/auth/v1.0'},
+             per_account=True)
+
+        self.assertEqual('sync_container', sync_swift.remote_container)
