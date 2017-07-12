@@ -453,7 +453,8 @@ class SyncS3(BaseSync):
 
     def get_prefix(self):
         md5_hash = hashlib.md5('%s/%s' % (
-            self.account, self.container)).hexdigest()
+            self.account.encode('utf-8'),
+            self.container.encode('utf-8'))).hexdigest()
         # strip off 0x and L
         return hex(long(md5_hash, 16) % self.PREFIX_SPACE)[2:-1]
 
