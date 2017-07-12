@@ -1153,20 +1153,31 @@ class TestSyncS3(unittest.TestCase):
             MaxKeys=10,
             Marker='%s/marker' % prefix)
         self.assertEqual(200, status)
-        self.assertEqual(dict(subdir='afirstpref'), ret[0])
-        self.assertEqual(dict(subdir='preflast'), ret[3])
-        self.assertEqual(dict(
-            hash='badbeef',
-            name=u'bar\xf9',
-            bytes=42,
-            last_modified=now_date.isoformat(),
-            content_type='application/octet-stream'), ret[1])
-        self.assertEqual(dict(
-            hash='deadbeef',
-            name='foo',
-            bytes=1024,
-            last_modified=now_date.isoformat(),
-            content_type='application/octet-stream'), ret[2])
+        expected_location = 'AWS S3;%s;%s' % (self.aws_bucket, prefix)
+        self.assertEqual(
+            dict(subdir='afirstpref',
+                 content_location=expected_location),
+            ret[0])
+        self.assertEqual(
+            dict(subdir='preflast',
+                 content_location=expected_location),
+            ret[3])
+        self.assertEqual(
+            dict(hash='badbeef',
+                 name=u'bar\xf9',
+                 bytes=42,
+                 last_modified=now_date.isoformat(),
+                 content_type='application/octet-stream',
+                 content_location=expected_location),
+            ret[1])
+        self.assertEqual(
+            dict(hash='deadbeef',
+                 name='foo',
+                 bytes=1024,
+                 last_modified=now_date.isoformat(),
+                 content_type='application/octet-stream',
+                 content_location=expected_location),
+            ret[2])
 
     def test_list_objects_error(self):
         self.mock_boto3_client.list_objects.side_effect = ClientError(

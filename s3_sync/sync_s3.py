@@ -215,15 +215,24 @@ class SyncS3(BaseSync):
                 # s3proxy does not include the ETag information when used with
                 # the filesystem provider
                 key_offset = len(s3_prefix) + 1
+                location_prefix = self.endpoint
+                if self._google():
+                    location_prefix = 'Google Cloud Storage'
+                elif not location_prefix:
+                    location_prefix = 'AWS S3'
+                content_location = u';'.join([
+                    location_prefix, self.aws_bucket, s3_prefix])
                 keys = [dict(hash=row.get('ETag', '').replace('"', ''),
                              name=urllib.unquote(row['Key'])[key_offset:],
                              last_modified=row['LastModified'].isoformat(),
                              bytes=row['Size'],
+                             content_location=content_location,
                              # S3 does not include content-type in listings
                              content_type='application/octet-stream')
                         for row in resp.get('Contents', [])]
                 prefixes = [
-                    dict(subdir=urllib.unquote(row['Prefix'])[key_offset:])
+                    dict(subdir=urllib.unquote(row['Prefix'])[key_offset:],
+                         content_location=content_location)
                     for row in resp.get('CommonPrefixes', [])]
                 return (200, sorted(
                     keys + prefixes,

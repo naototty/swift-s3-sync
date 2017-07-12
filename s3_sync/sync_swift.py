@@ -205,6 +205,11 @@ class SyncSwift(BaseSync):
                 hdrs, results = swift_client.get_container(
                     self.remote_container, marker=marker, limit=limit,
                     prefix=prefix, delimiter=delimiter)
+                for entry in results:
+                    entry['content_location'] = '%s;%s;%s' % (
+                        self.endpoint,
+                        self.settings['aws_identity'],
+                        self.remote_container)
                 return (200, results)
         except swiftclient.exceptions.ClientException as e:
             return (e.http_status, e.message)
