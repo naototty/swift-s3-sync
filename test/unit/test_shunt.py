@@ -123,7 +123,7 @@ class TestShunt(unittest.TestCase):
         self.assertEqual(self.app.sync_profiles, {
             ('AUTH_a', 'sw\xc3\xa9ft'): {
                 'account': 'AUTH_a',
-                'container': 'sw\xc3\xa9ft',
+                'container': 'sw\xc3\xa9ft'.decode('utf-8'),
                 'propagate_delete': False,
                 'protocol': 'swift',
                 'aws_bucket': 'dest-container',

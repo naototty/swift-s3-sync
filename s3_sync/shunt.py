@@ -25,12 +25,12 @@ class S3SyncShunt(object):
 
         self.sync_profiles = {}
         for cont in conf['containers']:
-            for key in ('account', 'container'):
-                cont[key] = cont[key].encode('utf8')
             if cont.get('propagate_delete', True):
                 # object shouldn't exist in remote
                 continue
-            self.sync_profiles[(cont['account'], cont['container'])] = cont
+            key = (cont['account'].encode('utf-8'),
+                   cont['container'].encode('utf-8'))
+            self.sync_profiles[key] = cont
 
     def __call__(self, env, start_response):
         req = swob.Request(env)
