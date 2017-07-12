@@ -197,18 +197,20 @@ class SyncS3(BaseSync):
             limit = 1000
         args = dict(Bucket=self.aws_bucket)
         args['MaxKeys'] = limit
-        # Works around an S3 proxy bug where empty-string prefix and delimiter
-        # still results in a listing with CommonPrefixes and no objects
-        if marker:
-            args['Marker'] = marker.decode('utf-8')
-        if delimiter:
-            args['Delimiter'] = delimiter.decode('utf-8')
         try:
             with self.client_pool.get_client() as boto_client:
                 s3_client = boto_client.client
                 s3_prefix = '%s/%s/%s' % (
                     self.get_prefix(), self.account, self.container)
                 args['Prefix'] = '%s/%s' % (s3_prefix, prefix.decode('utf-8'))
+                # Works around an S3 proxy bug where empty-string prefix and
+                # delimiter still results in a listing with CommonPrefixes and
+                # no objects
+                if marker:
+                    args['Marker'] = '%s/%s' % (
+                        s3_prefix, marker.decode('utf-8'))
+                if delimiter:
+                    args['Delimiter'] = delimiter.decode('utf-8')
                 resp = s3_client.list_objects(**args)
                 # s3proxy does not include the ETag information when used with
                 # the filesystem provider

@@ -1151,7 +1151,7 @@ class TestSyncS3(unittest.TestCase):
             Prefix='%s/prefix' % prefix,
             Delimiter='-',
             MaxKeys=10,
-            Marker='marker')
+            Marker='%s/marker' % prefix)
         self.assertEqual(200, status)
         self.assertEqual(dict(subdir='afirstpref'), ret[0])
         self.assertEqual(dict(subdir='preflast'), ret[3])
