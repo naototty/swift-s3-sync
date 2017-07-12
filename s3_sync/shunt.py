@@ -53,15 +53,21 @@ class S3SyncShunt(object):
         # If mapping all containers, make a new profile for just this request
         if sync_profile['container'] == '/*':
             sync_profile = dict(sync_profile, container=cont)
+            per_account = True
+        else:
+            per_account = False
 
         if not obj and req.method == 'GET':
-            return self.handle_listing(req, start_response, sync_profile, cont)
+            return self.handle_listing(req, start_response, sync_profile, cont,
+                                       per_account)
         elif obj and req.method in ('GET', 'HEAD'):
             # TODO: think about what to do for POST, COPY
-            return self.handle_object(req, start_response, sync_profile, obj)
+            return self.handle_object(req, start_response, sync_profile, obj,
+                                      per_account)
         return self.app(env, start_response)
 
-    def handle_listing(self, req, start_response, sync_profile, cont):
+    def handle_listing(self, req, start_response, sync_profile, cont,
+                       per_account):
         limit = int(req.params.get(
             'limit', constraints.CONTAINER_LISTING_LIMIT))
         marker = req.params.get('marker', '')
@@ -84,7 +90,8 @@ class S3SyncShunt(object):
             start_response(status, headers)
             return app_iter
 
-        provider = create_provider(sync_profile, max_conns=1)  # noqa
+        provider = create_provider(sync_profile, max_conns=1,
+                                   per_account=per_account)
         cloud_status, resp = provider.list_objects(
             marker, limit, prefix, delimiter)
         if cloud_status != 200:
@@ -152,7 +159,8 @@ class S3SyncShunt(object):
         start_response(status, dict_headers.items())
         return res
 
-    def handle_object(self, req, start_response, sync_profile, obj):
+    def handle_object(self, req, start_response, sync_profile, obj,
+                      per_account):
         status, headers, app_iter = req.call_application(self.app)
         if not status.startswith('404 '):
             # Only shunt 404s
@@ -167,7 +175,8 @@ class S3SyncShunt(object):
 
         utils.close_if_possible(app_iter)
 
-        provider = create_provider(sync_profile, max_conns=1)
+        provider = create_provider(sync_profile, max_conns=1,
+                                   per_account=per_account)
         status_code, headers, app_iter = provider.shunt_object(req, obj)
         status = '%s %s' % (status_code, swob.RESPONSE_REASONS[status_code][0])
         self.logger.debug('Remote resp: %s' % status)
