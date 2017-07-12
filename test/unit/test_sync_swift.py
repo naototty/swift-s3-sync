@@ -6,6 +6,8 @@ from swift.common import swob
 from s3_sync import utils
 from s3_sync.sync_swift import SyncSwift
 import unittest
+from swiftclient.exceptions import ClientException
+from swift.common.internal_client import UnexpectedResponse
 
 
 class TestSyncSwift(unittest.TestCase):
@@ -487,3 +489,21 @@ class TestSyncSwift(unittest.TestCase):
              per_account=True)
 
         self.assertEqual('sync_container', sync_swift.remote_container)
+
+    def test_per_account_container_create(self):
+        mock_ic = mock.Mock()
+        mock_ic.get_object_metadata.side_effect = UnexpectedResponse(
+            '404 Not Found', None)
+        self.mock_swift_client.head_container.side_effect = ClientException(
+            'not found', http_status=404, http_reason='Not Found')
+        self.sync_swift._per_account = True
+        self.assertFalse(self.sync_swift.verified_container)
+        self.sync_swift.upload_object('foo', 'policy', mock_ic)
+        self.mock_swift_client.put_container.assert_called_once_with(
+            'bucketcontainer')
+        self.assertTrue(self.sync_swift.verified_container)
+
+        self.mock_swift_client.reset_mock()
+        self.sync_swift.upload_object('foo', 'policy', mock_ic)
+        self.assertEqual([mock.call.head_object('bucketcontainer', 'foo')],
+                         self.mock_swift_client.mock_calls)

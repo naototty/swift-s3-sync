@@ -9,6 +9,11 @@ from .utils import (FileWrapper, check_slo, SWIFT_USER_META_PREFIX)
 
 
 class SyncSwift(BaseSync):
+    def __init__(self, settings, max_conns=10, per_account=False):
+        super(SyncSwift, self).__init__(settings, max_conns, per_account)
+        # Used to verify the remote container in case of per_account uploads
+        self.verified_container = False
+
     @property
     def remote_container(self):
         if not self._per_account:
@@ -32,6 +37,17 @@ class SyncSwift(BaseSync):
         return swift_client_factory
 
     def upload_object(self, name, policy, internal_client):
+        if self._per_account and not self.verified_container:
+            with self.client_pool.get_client() as client:
+                try:
+                    swift_client = client.client
+                    swift_client.head_container(self.remote_container)
+                except swiftclient.exceptions.ClientException as e:
+                    if e.http_status != 404:
+                        raise
+                    swift_client.put_container(self.remote_container)
+            self.verified_container = True
+
         try:
             with self.client_pool.get_client() as client:
                 swift_client = client.client

@@ -15,8 +15,10 @@ from .provider_factory import create_provider
 
 
 class SyncContainer(container_crawler.base_sync.BaseSync):
-    def __init__(self, status_dir, sync_settings, max_conns=10):
-        super(SyncContainer, self).__init__(status_dir, sync_settings)
+    def __init__(self, status_dir, sync_settings, max_conns=10,
+                 per_account=False):
+        super(SyncContainer, self).__init__(
+            status_dir, sync_settings, per_account)
         self.logger = logging.getLogger('s3-sync')
         self.aws_bucket = sync_settings['aws_bucket']
         self.copy_after = int(sync_settings.get('copy_after', 0))
