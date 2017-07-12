@@ -1,3 +1,24 @@
+## 0.1.12 (2017-07-12)
+
+Features:
+
+    - Added "content\_location" to JSON listings, which indicate where the object
+      is stored (if not local).
+    - Support for HTTP/HTTPS proxy.
+    - Allowed log-level to be set through the config.
+
+Bug fixes:
+
+    - Unicode characters are properly handled in account and container names when
+      syncing to S3.
+    - Fixed paginated listings of archived objects from S3, where previously missing
+      hashed prefix could cause the listing to never terminate.
+    - Worked around an issue with Google Cloud Storage, where encoding-type has been
+      dropped as a valid parameter.
+    - Swift to Swift sync is properly supported in the "per-account" case now.
+      Containers are auto-created in the remote store and the "cloud container" is
+      used as the prefix for the container names.
+
 ## 0.1.11 (2017-06-22)
 
 Bug fixes:
