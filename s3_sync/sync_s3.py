@@ -1,7 +1,8 @@
 import eventlet
 import boto3
 import botocore.exceptions
-from botocore.handlers import conditionally_calculate_md5
+from botocore.handlers import (
+    conditionally_calculate_md5, set_list_objects_encoding_type_url)
 import hashlib
 import json
 import traceback
@@ -63,6 +64,10 @@ class SyncS3(BaseSync):
                                              conditionally_calculate_md5)
             s3_client.meta.events.unregister('before-call.s3.UploadPart',
                                              conditionally_calculate_md5)
+            if self._google():
+                s3_client.meta.events.unregister(
+                    'before-parameter-build.s3.ListObjects',
+                    set_list_objects_encoding_type_url)
             return s3_client
         return boto_client_factory
 

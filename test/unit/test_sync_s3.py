@@ -450,7 +450,9 @@ class TestSyncS3(unittest.TestCase):
             mock.call().meta.events.unregister(
                 'before-call.s3.PutObject', mock.ANY),
             mock.call().meta.events.unregister(
-                'before-call.s3.UploadPart', mock.ANY)] * 10)
+                'before-call.s3.UploadPart', mock.ANY),
+            mock.call().meta.events.unregister(
+                'before-parameter-build.s3.ListObjects', mock.ANY)] * 10)
         self.assertEqual(True, sync._google())
 
     def test_user_agent(self):
@@ -480,14 +482,27 @@ class TestSyncS3(unittest.TestCase):
                 session.client.return_value = client
 
                 sync = SyncS3(settings)
-                session.client.assert_has_calls(
-                    [mock.call('s3',
-                               config=mock.ANY,
-                               endpoint_url=endpoint),
-                     mock.call().meta.events.unregister(
-                        'before-call.s3.PutObject', mock.ANY),
-                     mock.call().meta.events.unregister(
-                        'before-call.s3.UploadPart', mock.ANY)] * 10)
+                if endpoint == SyncS3.GOOGLE_API:
+                    session.client.assert_has_calls(
+                        [mock.call('s3',
+                                   config=mock.ANY,
+                                   endpoint_url=endpoint),
+                         mock.call().meta.events.unregister(
+                            'before-call.s3.PutObject', mock.ANY),
+                         mock.call().meta.events.unregister(
+                            'before-call.s3.UploadPart', mock.ANY),
+                         mock.call().meta.events.unregister(
+                            'before-parameter-build.s3.ListObjects',
+                            mock.ANY)] * 10)
+                else:
+                    session.client.assert_has_calls(
+                        [mock.call('s3',
+                                   config=mock.ANY,
+                                   endpoint_url=endpoint),
+                         mock.call().meta.events.unregister(
+                            'before-call.s3.PutObject', mock.ANY),
+                         mock.call().meta.events.unregister(
+                            'before-call.s3.UploadPart', mock.ANY)] * 10)
                 called_config = session.client.call_args[1]['config']
 
                 if endpoint and not endpoint.endswith('amazonaws.com'):
