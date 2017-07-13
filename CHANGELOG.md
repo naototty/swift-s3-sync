@@ -1,3 +1,11 @@
+## 0.1.13 (2017-07-13)
+
+Bug fixes:
+
+    - Convert container names in the shunt to unicode strings. Otherwise, we
+      fail with unicode containers, as they will be (unexpectedly) UTF-8
+      encoded.
+
 ## 0.1.12 (2017-07-12)
 
 Features:
