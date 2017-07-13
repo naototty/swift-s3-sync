@@ -52,7 +52,7 @@ class S3SyncShunt(object):
             return self.app(env, start_response)
         # If mapping all containers, make a new profile for just this request
         if sync_profile['container'] == '/*':
-            sync_profile = dict(sync_profile, container=cont)
+            sync_profile = dict(sync_profile, container=cont.decode('utf-8'))
             per_account = True
         else:
             per_account = False
