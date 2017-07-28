@@ -328,6 +328,48 @@ class TestShunt(unittest.TestCase):
                     except ValueError:
                         cur_elem_properties[elem.tag] = elem.text
 
+    def test_list_container_accept_xml(self):
+        elements = [{'name': 'abc',
+                     'hash': 'ffff',
+                     'bytes': 42,
+                     'last_modified': 'date',
+                     'content_type': 'type'},
+                    {'name': u'unicod\xc3\xa9',
+                     'hash': 'ffff',
+                     'bytes': 1000,
+                     'last_modified': 'date',
+                     'content_type': 'type'}]
+        self.mock_list_s3.side_effect = [(200, elements), (200, [])]
+        req = swob.Request.blank(
+            '/v1/AUTH_a/s3',
+            environ={'__test__.status': '200 OK',
+                     '__test__.body': '[]',
+                     'swift.trans_id': 'id'},
+            headers={'Accept': 'application/xml'})
+        status, headers, body_iter = req.call_application(self.app)
+        self.assertEqual(self.mock_shunt_swift.mock_calls, [])
+        self.mock_list_s3.assert_has_calls([
+            mock.call('', 10000, '', ''),
+            mock.call(u'unicod\xc3\xa9', 10000, '', '')])
+        root = lxml.etree.fromstring(body_iter)
+        context = lxml.etree.iterwalk(root, events=("start", "end"))
+        element_index = 0
+        cur_elem_properties = {}
+        for action, elem in context:
+            if action == 'end':
+                if elem.tag == 'container':
+                    self.assertEqual('s3', elem.get('name'))
+                elif elem.tag == 'object':
+                    self.assertEqual(elements[element_index],
+                                     cur_elem_properties)
+                    element_index += 1
+                else:
+                    try:
+                        int_value = int(elem.text)
+                        cur_elem_properties[elem.tag] = int_value
+                    except ValueError:
+                        cur_elem_properties[elem.tag] = elem.text
+
     def test_list_container_shunt_s3_json(self):
         elements = [{'name': 'abc',
                      'hash': 'ffff',
@@ -345,6 +387,33 @@ class TestShunt(unittest.TestCase):
             environ={'__test__.status': '200 OK',
                      '__test__.body': '[]',
                      'swift.trans_id': 'id'})
+        status, headers, body_iter = req.call_application(self.app)
+        self.assertEqual(self.mock_shunt_swift.mock_calls, [])
+        self.mock_list_s3.assert_has_calls([
+            mock.call('', 10000, '', ''),
+            mock.call(u'unicod\xc3\xa9', 10000, '', '')])
+        results = json.loads(body_iter)
+        for i, entry in enumerate(results):
+            self.assertEqual(elements[i], entry)
+
+    def test_list_container_accept_json(self):
+        elements = [{'name': 'abc',
+                     'hash': 'ffff',
+                     'bytes': 42,
+                     'last_modified': 'date',
+                     'content_type': 'type'},
+                    {'name': u'unicod\xc3\xa9',
+                     'hash': 'ffff',
+                     'bytes': 1000,
+                     'last_modified': 'date',
+                     'content_type': 'type'}]
+        self.mock_list_s3.side_effect = [(200, elements), (200, [])]
+        req = swob.Request.blank(
+            '/v1/AUTH_a/s3',
+            environ={'__test__.status': '200 OK',
+                     '__test__.body': '[]',
+                     'swift.trans_id': 'id'},
+            headers={'Accept': 'application/json'})
         status, headers, body_iter = req.call_application(self.app)
         self.assertEqual(self.mock_shunt_swift.mock_calls, [])
         self.mock_list_s3.assert_has_calls([

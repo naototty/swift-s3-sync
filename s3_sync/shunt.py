@@ -2,6 +2,7 @@ from lxml import etree
 import json
 
 from swift.common import constraints, swob, utils
+from swift.common.request_helpers import get_listing_content_type
 
 from swiftstack_auth.utils import fix_mw_logging
 
@@ -80,7 +81,7 @@ class S3SyncShunt(object):
             start_response(status, headers)
             return app_iter
 
-        req_format = req.params.get('format', None)
+        resp_type = get_listing_content_type(req)
         # We always make the request with the json format and convert to the
         # client-expected response.
         req.params = dict(req.params, format='json')
@@ -147,15 +148,10 @@ class S3SyncShunt(object):
             spliced_response.append(internal_resp[internal_index])
             internal_index += 1
 
-        res = self._format_listing_response(spliced_response, req_format, cont)
+        res = self._format_listing_response(spliced_response, resp_type, cont)
         dict_headers = dict(headers)
         dict_headers['Content-Length'] = len(res)
-        if req_format == 'json':
-            dict_headers['Content-Type'] = 'application/json'
-        elif req_format == 'xml':
-            dict_headers['Content-Type'] = 'application/xml'
-        else:
-            dict_headers['Content-Type'] = 'text/plain'
+        dict_headers['Content-Type'] = resp_type
         start_response(status, dict_headers.items())
         return res
 
@@ -205,9 +201,9 @@ class S3SyncShunt(object):
 
     @staticmethod
     def _format_listing_response(list_results, list_format, container):
-        if list_format == 'json':
+        if list_format == 'application/json':
             return json.dumps(list_results)
-        if list_format == 'xml':
+        if list_format.endswith('/xml'):
             fields = ['name', 'content_type', 'hash', 'bytes', 'last_modified',
                       'subdir']
             root = etree.Element('container', name=container)
