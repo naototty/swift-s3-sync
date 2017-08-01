@@ -1,3 +1,9 @@
+## 0.1.14 (2017-08-01)
+
+Bug fixes:
+
+    - Handle the "Accept" header correctly when constructing response listings.
+
 ## 0.1.13 (2017-07-13)
 
 Bug fixes:
