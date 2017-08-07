@@ -1,3 +1,9 @@
+## 0.1.15 (2017-08-07)
+
+Bug fixes:
+
+    - Fix listings where the last object has a unicode name.
+
 ## 0.1.14 (2017-08-01)
 
 Bug fixes:
