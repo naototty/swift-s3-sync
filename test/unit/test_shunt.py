@@ -268,7 +268,7 @@ class TestShunt(unittest.TestCase):
                     'bytes': 42,
                     'last_modified': 'date',
                     'content_type': 'type'},
-                   {'name': 'unicod\xc3\xa9',
+                   {'name': u'unicod\xe9',
                     'hash': 'ffff',
                     'bytes': 1000,
                     'last_modified': 'date',
@@ -285,7 +285,7 @@ class TestShunt(unittest.TestCase):
             mock.call('', 10000, '', ''),
             mock.call('unicod\xc3\xa9', 10000, '', '')])
         names = body_iter.split('\n')
-        self.assertEqual(['abc', 'unicod\xc3\xa9'], names)
+        self.assertEqual(['abc', u'unicod\xe9'], names)
 
     def test_list_container_shunt_s3_xml(self):
         elements = [{'name': 'abc',
@@ -308,7 +308,7 @@ class TestShunt(unittest.TestCase):
         self.assertEqual(self.mock_shunt_swift.mock_calls, [])
         self.mock_list_s3.assert_has_calls([
             mock.call('', 10000, '', ''),
-            mock.call(u'unicod\xc3\xa9', 10000, '', '')])
+            mock.call(u'unicod\xc3\xa9'.encode('utf-8'), 10000, '', '')])
         root = lxml.etree.fromstring(body_iter)
         context = lxml.etree.iterwalk(root, events=("start", "end"))
         element_index = 0
@@ -350,7 +350,7 @@ class TestShunt(unittest.TestCase):
         self.assertEqual(self.mock_shunt_swift.mock_calls, [])
         self.mock_list_s3.assert_has_calls([
             mock.call('', 10000, '', ''),
-            mock.call(u'unicod\xc3\xa9', 10000, '', '')])
+            mock.call(u'unicod\xc3\xa9'.encode('utf-8'), 10000, '', '')])
         root = lxml.etree.fromstring(body_iter)
         context = lxml.etree.iterwalk(root, events=("start", "end"))
         element_index = 0
@@ -391,7 +391,7 @@ class TestShunt(unittest.TestCase):
         self.assertEqual(self.mock_shunt_swift.mock_calls, [])
         self.mock_list_s3.assert_has_calls([
             mock.call('', 10000, '', ''),
-            mock.call(u'unicod\xc3\xa9', 10000, '', '')])
+            mock.call(u'unicod\xc3\xa9'.encode('utf-8'), 10000, '', '')])
         results = json.loads(body_iter)
         for i, entry in enumerate(results):
             self.assertEqual(elements[i], entry)
@@ -418,7 +418,7 @@ class TestShunt(unittest.TestCase):
         self.assertEqual(self.mock_shunt_swift.mock_calls, [])
         self.mock_list_s3.assert_has_calls([
             mock.call('', 10000, '', ''),
-            mock.call(u'unicod\xc3\xa9', 10000, '', '')])
+            mock.call(u'unicod\xc3\xa9'.encode('utf-8'), 10000, '', '')])
         results = json.loads(body_iter)
         for i, entry in enumerate(results):
             self.assertEqual(elements[i], entry)
@@ -480,6 +480,6 @@ class TestShunt(unittest.TestCase):
         self.assertEqual(self.mock_shunt_swift.mock_calls, [])
         self.mock_list_swift.assert_has_calls([
             mock.call('', 10000, '', ''),
-            mock.call(u'unicod\xe9', 10000, '', '')])
+            mock.call(u'unicod\xe9'.encode('utf-8'), 10000, '', '')])
         names = body_iter.split('\n')
         self.assertEqual(['abc', u'unicod\xe9'], names)

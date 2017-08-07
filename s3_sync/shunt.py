@@ -137,8 +137,12 @@ class S3SyncShunt(object):
                     spliced_response.append(resp[cloud_index])
                     cloud_index += 1
                     if len(resp) == cloud_index:
+                        # WSGI supplies the request parameters as UTF-8 encoded
+                        # strings. We should do the same when submitting
+                        # subsequent requests.
                         cloud_status, resp = provider.list_objects(
-                            cloud_name, limit, prefix, delimiter)
+                            cloud_name.encode('utf-8'), limit, prefix,
+                            delimiter)
                         if cloud_status != 200:
                             self.logger.error(
                                 'Failed to list the remote store: %s' % resp)
