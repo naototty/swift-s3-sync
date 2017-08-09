@@ -42,17 +42,27 @@ class BaseSync(object):
             clients = max_conns / BaseSync.HTTP_CONN_POOL_SIZE
             if max_conns % BaseSync.HTTP_CONN_POOL_SIZE:
                 clients += 1
-            return [BaseSync.HttpClientPoolEntry(client_factory(), self)
-                    for _ in range(0, clients)]
+            self.pool_size = clients
+            self.client_factory = client_factory
+            # The pool is lazy-populated on every get request, up to the
+            # calculated pool_size
+            return []
 
         def get_client(self):
             # SLO uploads may exhaust the client pool and we will need to wait
             # for connections
             self.get_semaphore.acquire()
             # we are guaranteed that there is an open connection we can use
+            # or we should create one
             for client in self.client_pool:
                 if client.acquire():
                     return client
+            if len(self.client_pool) < self.pool_size:
+                new_entry = BaseSync.HttpClientPoolEntry(
+                    self.client_factory(), self)
+                new_entry.acquire()
+                self.client_pool.append(new_entry)
+                return new_entry
             raise RuntimeError('Pool was exhausted')  # should never happen
 
         def release(self):

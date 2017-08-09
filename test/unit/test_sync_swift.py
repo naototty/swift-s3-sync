@@ -11,12 +11,7 @@ from swift.common.internal_client import UnexpectedResponse
 
 
 class TestSyncSwift(unittest.TestCase):
-    @mock.patch('s3_sync.sync_swift.swiftclient.client.Connection')
-    def setUp(self, mock_swift):
-        self.mock_swift_client = mock.Mock()
-
-        mock_swift.return_value = self.mock_swift_client
-
+    def setUp(self):
         self.aws_bucket = 'bucket'
         self.scratch_space = 'scratch'
         self.sync_swift = SyncSwift(
@@ -27,13 +22,17 @@ class TestSyncSwift(unittest.TestCase):
              'container': 'container',
              'aws_endpoint': 'http://swift.url/auth/v1.0'})
 
+    @mock.patch('s3_sync.sync_swift.swiftclient.client.Connection')
     @mock.patch('s3_sync.sync_swift.check_slo')
     @mock.patch('s3_sync.sync_swift.FileWrapper')
-    def test_upload_new_object(self, mock_file_wrapper, mock_check_slo):
+    def test_upload_new_object(
+            self, mock_file_wrapper, mock_check_slo, mock_swift):
         key = 'key'
         storage_policy = 42
         swift_req_headers = {'X-Backend-Storage-Policy-Index': storage_policy,
                              'X-Newest': True}
+        swift_client = mock.Mock()
+        mock_swift.return_value = swift_client
 
         wrapper = mock.Mock()
         wrapper.__len__ = lambda s: 0
@@ -41,7 +40,7 @@ class TestSyncSwift(unittest.TestCase):
         mock_file_wrapper.return_value = wrapper
         not_found = swiftclient.exceptions.ClientException('not found',
                                                            http_status=404)
-        self.mock_swift_client.head_object.side_effect = not_found
+        swift_client.head_object.side_effect = not_found
 
         mock_check_slo.return_value = False
         mock_ic = mock.Mock()
@@ -53,17 +52,21 @@ class TestSyncSwift(unittest.TestCase):
                                              self.sync_swift.container,
                                              key, swift_req_headers)
 
-        self.mock_swift_client.put_object.assert_called_with(
+        swift_client.put_object.assert_called_with(
             self.aws_bucket, key, wrapper, headers={}, etag='deadbeef',
             content_length=0)
 
+    @mock.patch('s3_sync.sync_swift.swiftclient.client.Connection')
     @mock.patch('s3_sync.sync_swift.check_slo')
     @mock.patch('s3_sync.sync_swift.FileWrapper')
-    def test_upload_unicode_object(self, mock_file_wrapper, mock_check_slo):
+    def test_upload_unicode_object(
+            self, mock_file_wrapper, mock_check_slo, mock_swift):
         key = 'monkey-\xf0\x9f\x90\xb5'
         storage_policy = 42
         swift_req_headers = {'X-Backend-Storage-Policy-Index': storage_policy,
                              'X-Newest': True}
+        swift_client = mock.Mock()
+        mock_swift.return_value = swift_client
 
         wrapper = mock.Mock()
         wrapper.__len__ = lambda s: 0
@@ -71,7 +74,7 @@ class TestSyncSwift(unittest.TestCase):
         mock_file_wrapper.return_value = wrapper
         not_found = swiftclient.exceptions.ClientException('not found',
                                                            http_status=404)
-        self.mock_swift_client.head_object.side_effect = not_found
+        swift_client.head_object.side_effect = not_found
 
         mock_check_slo.return_value = False
         mock_ic = mock.Mock()
@@ -83,30 +86,35 @@ class TestSyncSwift(unittest.TestCase):
                                              self.sync_swift.container,
                                              key, swift_req_headers)
 
-        self.mock_swift_client.put_object.assert_called_with(
+        swift_client.put_object.assert_called_with(
             self.aws_bucket, key, wrapper, headers={},
             etag='deadbeef', content_length=0)
 
-    def test_upload_changed_meta(self):
+    @mock.patch('s3_sync.sync_swift.swiftclient.client.Connection')
+    def test_upload_changed_meta(self, mock_swift):
         key = 'key'
         storage_policy = 42
         etag = '1234'
         swift_object_meta = {'x-object-meta-new': 'new',
                              'x-object-meta-old': 'updated',
                              'etag': etag}
+        swift_client = mock.Mock()
+        mock_swift.return_value = swift_client
+
         mock_ic = mock.Mock()
         mock_ic.get_object_metadata.return_value = swift_object_meta
-        self.mock_swift_client.head_object.return_value = {
+        swift_client.head_object.return_value = {
             'x-object-meta-old': 'old', 'etag': '%s' % etag}
 
         self.sync_swift.upload_object(key, storage_policy, mock_ic)
 
-        self.mock_swift_client.post_object.assert_called_with(
+        swift_client.post_object.assert_called_with(
             self.aws_bucket, key,
             {'x-object-meta-new': 'new',
              'x-object-meta-old': 'updated'})
 
-    def test_meta_unicode(self):
+    @mock.patch('s3_sync.sync_swift.swiftclient.client.Connection')
+    def test_meta_unicode(self, mock_swift):
         key = 'key'
         storage_policy = 42
         etag = '1234'
@@ -115,19 +123,22 @@ class TestSyncSwift(unittest.TestCase):
                              'etag': etag}
         mock_ic = mock.Mock()
         mock_ic.get_object_metadata.return_value = swift_object_meta
-        self.mock_swift_client.head_object.return_value = {
+        swift_client = mock.Mock()
+        mock_swift.return_value = swift_client
+        swift_client.head_object.return_value = {
             'x-object-meta-old': 'old', 'etag': '%s' % etag}
 
         self.sync_swift.upload_object(key, storage_policy, mock_ic)
 
-        self.mock_swift_client.post_object.assert_called_with(
+        swift_client.post_object.assert_called_with(
             self.aws_bucket,
             key,
             {'x-object-meta-new': '\xf0\x9f\x91\x8d',
              'x-object-meta-old': 'updated'})
 
+    @mock.patch('s3_sync.sync_swift.swiftclient.client.Connection')
     @mock.patch('s3_sync.sync_swift.FileWrapper')
-    def test_upload_replace_object(self, mock_file_wrapper):
+    def test_upload_replace_object(self, mock_file_wrapper, mock_swift):
         key = 'key'
         storage_policy = 42
         swift_object_meta = {'x-object-meta-new': 'new',
@@ -135,7 +146,9 @@ class TestSyncSwift(unittest.TestCase):
                              'etag': '2'}
         mock_ic = mock.Mock()
         mock_ic.get_object_metadata.return_value = swift_object_meta
-        self.mock_swift_client.head_object.return_value = {
+        swift_client = mock.Mock()
+        mock_swift.return_value = swift_client
+        swift_client.head_object.return_value = {
             'x-object-meta-old': 'old', 'etag': '1'}
 
         wrapper = mock.Mock()
@@ -145,7 +158,7 @@ class TestSyncSwift(unittest.TestCase):
 
         self.sync_swift.upload_object(key, storage_policy, mock_ic)
 
-        self.mock_swift_client.put_object.assert_called_with(
+        swift_client.put_object.assert_called_with(
             self.aws_bucket,
             key,
             wrapper,
@@ -154,7 +167,8 @@ class TestSyncSwift(unittest.TestCase):
             etag='2',
             content_length=42)
 
-    def test_upload_same_object(self):
+    @mock.patch('s3_sync.sync_swift.swiftclient.client.Connection')
+    def test_upload_same_object(self, mock_swift):
         key = 'key'
         storage_policy = 42
         etag = '1234'
@@ -162,15 +176,18 @@ class TestSyncSwift(unittest.TestCase):
                              'etag': etag}
         mock_ic = mock.Mock()
         mock_ic.get_object_metadata.return_value = swift_object_meta
-        self.mock_swift_client.head_object.return_value = {
+        swift_client = mock.Mock()
+        mock_swift.return_value = swift_client
+        swift_client.head_object.return_value = {
             'x-object-meta-foo': 'foo', 'etag': '%s' % etag}
 
         self.sync_swift.upload_object(key, storage_policy, mock_ic)
 
-        self.mock_swift_client.post_object.assert_not_called()
-        self.mock_swift_client.put_object.assert_not_called()
+        swift_client.post_object.assert_not_called()
+        swift_client.put_object.assert_not_called()
 
-    def test_upload_slo(self):
+    @mock.patch('s3_sync.sync_swift.swiftclient.client.Connection')
+    def test_upload_slo(self, mock_swift):
         slo_key = 'slo-object'
         storage_policy = 42
         swift_req_headers = {'X-Backend-Storage-Policy-Index': storage_policy,
@@ -184,8 +201,10 @@ class TestSyncSwift(unittest.TestCase):
 
         not_found = swiftclient.exceptions.ClientException('not found',
                                                            http_status=404)
-        self.mock_swift_client.head_object.side_effect = not_found
-        self.mock_swift_client.get_object.side_effect = not_found
+        swift_client = mock.Mock()
+        mock_swift.return_value = swift_client
+        swift_client.head_object.side_effect = not_found
+        swift_client.get_object.side_effect = not_found
 
         def get_metadata(account, container, key, headers):
             if key == slo_key:
@@ -209,10 +228,10 @@ class TestSyncSwift(unittest.TestCase):
 
         self.sync_swift.upload_object(slo_key, storage_policy, mock_ic)
 
-        self.mock_swift_client.head_object.assert_called_once_with(
+        swift_client.head_object.assert_called_once_with(
             self.aws_bucket, slo_key)
         segment_container = self.aws_bucket + '_segments'
-        self.mock_swift_client.put_object.assert_has_calls([
+        swift_client.put_object.assert_has_calls([
             mock.call(segment_container,
                       'slo-object/part1', mock.ANY, etag='deadbeef',
                       content_length=1024),
@@ -236,7 +255,7 @@ class TestSyncSwift(unittest.TestCase):
              'etag': 'beefdead'}]
 
         called_manifest = json.loads(
-            self.mock_swift_client.put_object.mock_calls[-1][1][2])
+            swift_client.put_object.mock_calls[-1][1][2])
         self.assertEqual(len(expected_manifest), len(called_manifest))
         for index, segment in enumerate(expected_manifest):
             called_segment = called_manifest[index]
@@ -254,7 +273,8 @@ class TestSyncSwift(unittest.TestCase):
             mock.call('account', 'segment_container', 'slo-object/part2',
                       headers=swift_req_headers)])
 
-    def test_slo_metadata_update(self):
+    @mock.patch('s3_sync.sync_swift.swiftclient.client.Connection')
+    def test_slo_metadata_update(self, mock_swift):
         key = 'key'
         storage_policy = 42
         etag = '1234'
@@ -264,22 +284,25 @@ class TestSyncSwift(unittest.TestCase):
                              'etag': etag}
         mock_ic = mock.Mock()
         mock_ic.get_object_metadata.return_value = swift_object_meta
-        self.mock_swift_client.head_object.return_value = {
+        swift_client = mock.Mock()
+        mock_swift.return_value = swift_client
+        swift_client.head_object.return_value = {
             'x-object-meta-old': 'old',
             'x-static-large-object': 'True',
             'etag': '%s' % etag}
-        self.mock_swift_client.get_object.return_value = ({
+        swift_client.get_object.return_value = ({
             'etag': etag
         }, '')
 
         self.sync_swift.upload_object(key, storage_policy, mock_ic)
 
-        self.mock_swift_client.post_object.assert_called_with(
+        swift_client.post_object.assert_called_with(
             self.aws_bucket, key,
             {'x-object-meta-new': 'new',
              'x-object-meta-old': 'updated'})
 
-    def test_slo_no_changes(self):
+    @mock.patch('s3_sync.sync_swift.swiftclient.client.Connection')
+    def test_slo_no_changes(self, mock_swift):
         key = 'key'
         storage_policy = 42
         etag = '1234'
@@ -289,54 +312,67 @@ class TestSyncSwift(unittest.TestCase):
                 'etag': etag}
         mock_ic = mock.Mock()
         mock_ic.get_object_metadata.return_value = meta
-        self.mock_swift_client.head_object.return_value = meta
-        self.mock_swift_client.get_object.return_value = (meta, '')
+        swift_client = mock.Mock()
+        mock_swift.return_value = swift_client
+        swift_client.head_object.return_value = meta
+        swift_client.get_object.return_value = (meta, '')
 
         self.sync_swift.upload_object(key, storage_policy, mock_ic)
 
-        self.mock_swift_client.post_object.assert_not_called()
+        swift_client.post_object.assert_not_called()
 
-    def test_delete_object(self):
+    @mock.patch('s3_sync.sync_swift.swiftclient.client.Connection')
+    def test_delete_object(self, mock_swift):
         key = 'key'
 
+        swift_client = mock.Mock()
+        mock_swift.return_value = swift_client
         # When deleting in Swift, we have to do a HEAD in case it's an SLO
-        self.mock_swift_client.head_object.return_value = {}
+        swift_client.head_object.return_value = {}
         self.sync_swift.delete_object(key)
-        self.mock_swift_client.delete_object.assert_called_with(
+        swift_client.delete_object.assert_called_with(
             self.aws_bucket, key)
 
-    def test_delete_non_existent_object(self):
-        key = 'key'
+    @mock.patch('s3_sync.sync_swift.swiftclient.client.Connection')
+    def test_delete_non_existent_object(self, mock_swift):
+        swift_client = mock.Mock()
+        mock_swift.return_value = swift_client
 
+        key = 'key'
         not_found = swiftclient.exceptions.ClientException(
             'not found', http_status=404)
-        self.mock_swift_client.head_object.side_effect = not_found
+        swift_client.head_object.side_effect = not_found
         self.sync_swift.delete_object(key)
-        self.mock_swift_client.delete_object.assert_not_called()
+        swift_client.delete_object.assert_not_called()
 
-    def test_delete_slo(self):
+    @mock.patch('s3_sync.sync_swift.swiftclient.client.Connection')
+    def test_delete_slo(self, mock_swift):
         slo_key = 'slo-object'
         manifest = [{'name': '/segment_container/slo-object/part1',
                      'hash': 'deadbeef'},
                     {'name': '/segment_container/slo-object/part2',
                      'hash': 'beefdead'}]
 
-        self.mock_swift_client.head_object.return_value = {
+        swift_client = mock.Mock()
+        mock_swift.return_value = swift_client
+
+        swift_client.head_object.return_value = {
             'x-static-large-object': 'True',
             'etag': 'deadbeef'
         }
-        self.mock_swift_client.get_object.return_value = (
+        swift_client.get_object.return_value = (
             {}, json.dumps(manifest))
 
         self.sync_swift.delete_object(slo_key)
 
-        self.mock_swift_client.delete_object.assert_called_once_with(
+        swift_client.delete_object.assert_called_once_with(
             self.aws_bucket, slo_key, query_string='multipart-manifest=delete')
 
-        self.mock_swift_client.head_object.assert_called_once_with(
+        swift_client.head_object.assert_called_once_with(
             self.aws_bucket, slo_key)
 
-    def test_shunt_object(self):
+    @mock.patch('s3_sync.sync_swift.swiftclient.client.Connection')
+    def test_shunt_object(self, mock_swift):
         key = 'key'
         body = 'some fairly large content' * (1 << 16)
         headers = {
@@ -350,14 +386,17 @@ class TestSyncSwift(unittest.TestCase):
             'x-openstack-request-id': 'also some trans id',
             'x-object-meta-mtime': '1497315527.000000'}
 
+        swift_client = mock.Mock()
+        mock_swift.return_value = swift_client
+
         def body_gen():
             # Simulate swiftclient's _ObjectBody. Note that this requires that
             # we supply a resp_chunk_size argument to get_body.
             for i in range(0, len(body), 1 << 16):
                 yield body[i:i + (1 << 16)]
 
-        self.mock_swift_client.get_object.return_value = (headers, body_gen())
-        self.mock_swift_client.head_object.return_value = headers
+        swift_client.get_object.return_value = (headers, body_gen())
+        swift_client.head_object.return_value = headers
 
         expected_headers = [
             # Content-Length must be properly capitalized,
@@ -381,7 +420,7 @@ class TestSyncSwift(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(sorted(headers), expected_headers)
         self.assertEqual(b''.join(body_iter), body)
-        self.assertEqual(self.mock_swift_client.get_object.mock_calls, [
+        self.assertEqual(swift_client.get_object.mock_calls, [
             mock.call(self.aws_bucket, key, headers={
                 'X-Trans-Id-Extra': 'local transaction id',
             }, resp_chunk_size=1 << 16)])
@@ -391,12 +430,13 @@ class TestSyncSwift(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(sorted(headers), expected_headers)
         self.assertEqual(b''.join(body_iter), '')
-        self.assertEqual(self.mock_swift_client.head_object.mock_calls, [
+        self.assertEqual(swift_client.head_object.mock_calls, [
             mock.call(self.aws_bucket, key, headers={
                 'X-Trans-Id-Extra': 'local transaction id',
             })])
 
-    def test_shunt_range_request(self):
+    @mock.patch('s3_sync.sync_swift.swiftclient.client.Connection')
+    def test_shunt_range_request(self, mock_swift):
         key = 'key'
         body = 'some fairly large content' * (1 << 16)
         headers = {
@@ -409,8 +449,11 @@ class TestSyncSwift(unittest.TestCase):
             for i in range(0, len(body), 1 << 16):
                 yield body[i:i + (1 << 16)]
 
-        self.mock_swift_client.get_object.return_value = (headers, body_gen())
-        self.mock_swift_client.head_object.return_value = headers
+        swift_client = mock.Mock()
+        mock_swift.return_value = swift_client
+
+        swift_client.get_object.return_value = (headers, body_gen())
+        swift_client.head_object.return_value = headers
 
         expected_headers = [
             # Content-Length must be properly capitalized,
@@ -426,7 +469,7 @@ class TestSyncSwift(unittest.TestCase):
         self.assertEqual(status, 206)
         self.assertEqual(sorted(headers), expected_headers)
         self.assertEqual(b''.join(body_iter), body)
-        self.assertEqual(self.mock_swift_client.get_object.mock_calls, [
+        self.assertEqual(swift_client.get_object.mock_calls, [
             mock.call(self.aws_bucket, key, headers={
                 'X-Trans-Id-Extra': 'local transaction id',
                 'Range': 'bytes=10-20',
@@ -439,16 +482,19 @@ class TestSyncSwift(unittest.TestCase):
         self.assertEqual(status, 206)
         self.assertEqual(sorted(headers), expected_headers)
         self.assertEqual(b''.join(body_iter), '')
-        self.assertEqual(self.mock_swift_client.head_object.mock_calls, [
+        self.assertEqual(swift_client.head_object.mock_calls, [
             mock.call(self.aws_bucket, key, headers={
                 'X-Trans-Id-Extra': 'local transaction id',
                 'Range': 'bytes=10-20',
             })])
 
-    def test_shunt_object_network_error(self):
+    @mock.patch('s3_sync.sync_swift.swiftclient.client.Connection')
+    def test_shunt_object_network_error(self, mock_swift):
         key = 'key'
-        self.mock_swift_client.get_object.side_effect = Exception
-        self.mock_swift_client.head_object.side_effect = Exception
+        swift_client = mock.Mock()
+        mock_swift.return_value = swift_client
+        swift_client.get_object.side_effect = Exception
+        swift_client.head_object.side_effect = Exception
         req = swob.Request.blank('/v1/AUTH_a/c/key', method='GET', environ={
             'swift.trans_id': 'local transaction id',
         })
@@ -456,7 +502,7 @@ class TestSyncSwift(unittest.TestCase):
         self.assertEqual(status, 502)
         self.assertEqual(headers, [])
         self.assertEqual(b''.join(body_iter), 'Bad Gateway')
-        self.assertEqual(self.mock_swift_client.get_object.mock_calls, [
+        self.assertEqual(swift_client.get_object.mock_calls, [
             mock.call(self.aws_bucket, key, headers={
                 'X-Trans-Id-Extra': 'local transaction id',
             }, resp_chunk_size=1 << 16)])
@@ -467,7 +513,7 @@ class TestSyncSwift(unittest.TestCase):
         self.assertEqual(status, 502)
         self.assertEqual(headers, [])
         self.assertEqual(b''.join(body_iter), b'')
-        self.assertEqual(self.mock_swift_client.head_object.mock_calls, [
+        self.assertEqual(swift_client.head_object.mock_calls, [
             mock.call(self.aws_bucket, key, headers={
                 'X-Trans-Id-Extra': 'local transaction id',
             })])
@@ -478,7 +524,6 @@ class TestSyncSwift(unittest.TestCase):
 
         # in this case, the "bucket" is actually the prefix
         aws_bucket = 'sync_'
-        scratch_space = 'scratch'
         sync_swift = SyncSwift(
             {'aws_bucket': aws_bucket,
              'aws_identity': 'identity',
@@ -486,24 +531,27 @@ class TestSyncSwift(unittest.TestCase):
              'account': 'account',
              'container': 'container',
              'aws_endpoint': 'http://swift.url/auth/v1.0'},
-             per_account=True)
+            per_account=True)
 
         self.assertEqual('sync_container', sync_swift.remote_container)
 
-    def test_per_account_container_create(self):
+    @mock.patch('s3_sync.sync_swift.swiftclient.client.Connection')
+    def test_per_account_container_create(self, mock_swift):
         mock_ic = mock.Mock()
         mock_ic.get_object_metadata.side_effect = UnexpectedResponse(
             '404 Not Found', None)
-        self.mock_swift_client.head_container.side_effect = ClientException(
+        swift_client = mock.Mock()
+        mock_swift.return_value = swift_client
+        swift_client.head_container.side_effect = ClientException(
             'not found', http_status=404, http_reason='Not Found')
         self.sync_swift._per_account = True
         self.assertFalse(self.sync_swift.verified_container)
         self.sync_swift.upload_object('foo', 'policy', mock_ic)
-        self.mock_swift_client.put_container.assert_called_once_with(
+        swift_client.put_container.assert_called_once_with(
             'bucketcontainer')
         self.assertTrue(self.sync_swift.verified_container)
 
-        self.mock_swift_client.reset_mock()
+        swift_client.reset_mock()
         self.sync_swift.upload_object('foo', 'policy', mock_ic)
         self.assertEqual([mock.call.head_object('bucketcontainer', 'foo')],
-                         self.mock_swift_client.mock_calls)
+                         swift_client.mock_calls)

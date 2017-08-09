@@ -443,6 +443,9 @@ class TestSyncS3(unittest.TestCase):
                        'account': 'account',
                        'container': 'container',
                        'aws_endpoint': SyncS3.GOOGLE_API})
+        # Connections are instantiated on-demand, so we have to submit a
+        # request to check the boto session and client arguments.
+        sync.delete_object('object')
         session.client.assert_has_calls([
             mock.call('s3',
                       config=mock.ANY,
@@ -452,8 +455,10 @@ class TestSyncS3(unittest.TestCase):
             mock.call().meta.events.unregister(
                 'before-call.s3.UploadPart', mock.ANY),
             mock.call().meta.events.unregister(
-                'before-parameter-build.s3.ListObjects', mock.ANY)] * 10)
+                'before-parameter-build.s3.ListObjects', mock.ANY)])
         self.assertEqual(True, sync._google())
+        client.delete_object.assert_called_once_with(
+            Bucket=self.aws_bucket, Key=sync.get_s3_name('object'))
 
     def test_user_agent(self):
         boto3_ua = boto3.session.Session()._session.user_agent()
@@ -482,6 +487,10 @@ class TestSyncS3(unittest.TestCase):
                 session.client.return_value = client
 
                 sync = SyncS3(settings)
+                # Connections are only instantiated when there is an object to
+                # process. delete() is the simplest call to mock, so do so here
+                sync.delete_object('object')
+
                 if endpoint == SyncS3.GOOGLE_API:
                     session.client.assert_has_calls(
                         [mock.call('s3',
@@ -493,7 +502,7 @@ class TestSyncS3(unittest.TestCase):
                             'before-call.s3.UploadPart', mock.ANY),
                          mock.call().meta.events.unregister(
                             'before-parameter-build.s3.ListObjects',
-                            mock.ANY)] * 10)
+                            mock.ANY)])
                 else:
                     session.client.assert_has_calls(
                         [mock.call('s3',
@@ -502,7 +511,7 @@ class TestSyncS3(unittest.TestCase):
                          mock.call().meta.events.unregister(
                             'before-call.s3.PutObject', mock.ANY),
                          mock.call().meta.events.unregister(
-                            'before-call.s3.UploadPart', mock.ANY)] * 10)
+                            'before-call.s3.UploadPart', mock.ANY)])
                 called_config = session.client.call_args[1]['config']
 
                 if endpoint and not endpoint.endswith('amazonaws.com'):
@@ -515,6 +524,9 @@ class TestSyncS3(unittest.TestCase):
                                  sync._google())
 
                 self.assertEqual(ua, called_config.user_agent)
+                client.delete_object.assert_called_once_with(
+                    Bucket=settings['aws_bucket'],
+                    Key=sync.get_s3_name('object'))
 
     def test_google_slo_upload(self):
         self.sync_s3._google = lambda: True
