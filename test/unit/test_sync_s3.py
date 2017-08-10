@@ -1046,14 +1046,14 @@ class TestSyncS3(unittest.TestCase):
             # Content-Length must be properly capitalized,
             # or eventlet will try to be "helpful"
             ('Content-Length', str(len(body))),
-            # x-amz-meta-* get translated to X-Object-Meta-*
-            ('X-Object-Meta-mtime', '1497315527.000000'),
             # everything else...
             ('content-type', 'application/unknown'),
             ('date', 'Thu, 15 Jun 2017 00:09:25 GMT'),
             ('etag', 'e06dd4228b3a7ab66aae5fbc9e4b905e'),
             ('last-modified', 'Wed, 14 Jun 2017 23:11:34 GMT'),
             ('server', 'Jetty(9.2.z-SNAPSHOT)'),
+            # x-amz-meta-* get translated to X-Object-Meta-*
+            ('x-object-meta-mtime', '1497315527.000000'),
         ]
 
         req = swob.Request.blank('/v1/AUTH_a/c/key', method='GET')

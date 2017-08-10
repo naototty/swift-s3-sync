@@ -5,6 +5,7 @@ from swift.common.utils import FileLikeIter
 
 
 SWIFT_USER_META_PREFIX = 'x-object-meta-'
+S3_USER_META_PREFIX = 'x-amz-meta-'
 MANIFEST_HEADER = 'x-object-manifest'
 SLO_HEADER = 'x-static-large-object'
 SLO_ETAG_FIELD = 'swift-slo-etag'
@@ -142,6 +143,26 @@ def convert_to_s3_headers(swift_headers):
             s3_headers[MANIFEST_HEADER] = urllib.quote(swift_headers[hdr])
 
     return s3_headers
+
+
+def convert_to_swift_headers(s3_headers):
+    swift_headers = {}
+    for header, value in s3_headers.items():
+        if header in ('x-amz-id-2', 'x-amz-request-id'):
+            swift_headers['Remote-' + header] = value
+        elif header.startswith(S3_USER_META_PREFIX) and not\
+                header.endswith(MANIFEST_HEADER):
+            key = SWIFT_USER_META_PREFIX + header[len(S3_USER_META_PREFIX):]
+            swift_headers[key] = value
+        elif header == 'content-length':
+            # Capitalize, so eventlet doesn't try to add its own
+            swift_headers['Content-Length'] = value
+        elif header == 'etag':
+            # S3 returns ETag in quotes
+            swift_headers['etag'] = value[1:-1]
+        else:
+            swift_headers[header] = value
+    return swift_headers
 
 
 def get_slo_etag(manifest):

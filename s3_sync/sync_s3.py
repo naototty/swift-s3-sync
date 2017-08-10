@@ -11,9 +11,10 @@ import urllib
 from swift.common.utils import FileLikeIter
 from swift.common.internal_client import UnexpectedResponse
 from .base_sync import BaseSync
-from .utils import (convert_to_s3_headers, FileWrapper, SLOFileWrapper,
-                    get_slo_etag, check_slo, SLO_ETAG_FIELD, SLO_HEADER,
-                    SWIFT_USER_META_PREFIX)
+from .utils import (
+    convert_to_s3_headers, convert_to_swift_headers, FileWrapper,
+    SLOFileWrapper, get_slo_etag, check_slo, SLO_ETAG_FIELD, SLO_HEADER,
+    SWIFT_USER_META_PREFIX)
 
 
 class SyncS3(BaseSync):
@@ -172,24 +173,11 @@ class SyncS3(BaseSync):
                 self.logger.exception('Error contacting remote s3 cluster')
                 return 502, [], ['Bad Gateway' if req.method == 'GET' else '']
 
-            def translate(header, value):
-                if header in ('x-amz-id-2', 'x-amz-request-id'):
-                    return ('Remote-' + header, value)
-                if header.startswith('x-amz-meta-'):
-                    return ('X-Object-Meta-' + header[11:], value)
-                if header == 'content-length':
-                    # Capitalize, so eventlet doesn't try to add its own
-                    return ('Content-Length', value)
-                if header == 'etag':
-                    # S3 returns ETag in quotes
-                    return ('etag', value[1:-1])
-                return (header, value)
-            headers = [
-                translate(header, value) for header, value in
-                resp['ResponseMetadata']['HTTPHeaders'].items()]
+            headers = convert_to_swift_headers(
+                resp['ResponseMetadata']['HTTPHeaders'])
 
             return (resp['ResponseMetadata']['HTTPStatusCode'],
-                    headers,
+                    headers.items(),
                     body_iter)
 
     def list_objects(self, marker, limit, prefix, delimiter):
