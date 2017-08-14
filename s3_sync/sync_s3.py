@@ -484,7 +484,7 @@ class SyncS3(BaseSync):
             for part_number, segment in enumerate(manifest):
                 container, obj = segment['name'].split('/', 2)[1:]
                 segment_meta = internal_client.get_object_metadata(
-                    self.account, container, obj, req_headers)
+                    self.account, container, obj, headers=req_headers)
                 length = int(segment_meta['content-length'])
                 resp = s3_client.upload_part_copy(
                     Bucket=self.aws_bucket,
