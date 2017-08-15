@@ -243,7 +243,8 @@ class TestSyncContainer(unittest.TestCase):
             sync = SyncContainer(self.scratch_space, settings, max_conns=1)
             self.assertIsInstance(sync.provider, SyncS3)
             self.assertEqual(sync.provider.settings, settings)
-            self.assertEqual(len(sync.provider.client_pool.client_pool), 1)
+            self.assertEqual(len(sync.provider.client_pool.client_pool), 0)
+            self.assertEqual(sync.provider.client_pool.pool_size, 1)
 
     def test_swift_provider(self):
         settings = {'aws_bucket': self.aws_bucket,
@@ -256,7 +257,8 @@ class TestSyncContainer(unittest.TestCase):
         sync = SyncContainer(self.scratch_space, settings, max_conns=1)
         self.assertIsInstance(sync.provider, SyncSwift)
         self.assertEqual(sync.provider.settings, settings)
-        self.assertEqual(len(sync.provider.client_pool.client_pool), 1)
+        self.assertEqual(len(sync.provider.client_pool.client_pool), 0)
+        self.assertEqual(sync.provider.client_pool.pool_size, 1)
 
     def test_unknown_provider(self):
         settings = {'aws_bucket': self.aws_bucket,
