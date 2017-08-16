@@ -854,8 +854,11 @@ class TestSyncS3(unittest.TestCase):
              'hash': 'fedcba'}]
         s3_key = self.sync_s3.get_s3_name('slo-object')
         segment_lengths = [12 * SyncS3.MB, 14 * SyncS3.MB]
+        storage_policy = 42
+        swift_req_headers = {'X-Backend-Storage-Policy-Index': storage_policy,
+                             'X-Newest': True}
 
-        def get_object_metadata(account, container, key, headers):
+        def get_object_metadata(account, container, key, headers={}):
             return {'content-length': segment_lengths[int(key[-1]) - 1]}
         mock_ic = mock.Mock()
         mock_ic.get_object_metadata.side_effect = get_object_metadata
@@ -872,8 +875,8 @@ class TestSyncS3(unittest.TestCase):
 
         self.mock_boto3_client.upload_part_copy.side_effect = upload_part_copy
 
-        self.sync_s3.update_slo_metadata(slo_meta, manifest, s3_key, {},
-                                         mock_ic)
+        self.sync_s3.update_slo_metadata(slo_meta, manifest, s3_key,
+                                         swift_req_headers, mock_ic)
 
         self.mock_boto3_client.create_multipart_upload.assert_called_once_with(
             Bucket=self.aws_bucket, Key=s3_key,
@@ -898,6 +901,15 @@ class TestSyncS3(unittest.TestCase):
                                          {'PartNumber': 1, 'ETag': 'abcdef'},
                                          {'PartNumber': 2, 'ETag': 'fedcba'}
                                      ]})
+        mock_ic.get_object_metadata.assert_has_calls(
+            [mock.call(self.sync_s3.account,
+                       'segments',
+                       'slo-object/part1',
+                       headers=swift_req_headers),
+             mock.call(self.sync_s3.account,
+                       'segments',
+                       'slo-object/part2',
+                       headers=swift_req_headers)])
 
     def test_slo_metadata_update_encryption(self):
         slo_meta = {
