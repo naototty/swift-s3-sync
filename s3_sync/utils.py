@@ -1,7 +1,9 @@
+import eventlet
 import hashlib
 import urllib
 
 from swift.common.utils import FileLikeIter
+from swift.common.swob import Request
 
 
 SWIFT_USER_META_PREFIX = 'x-object-meta-'
@@ -133,6 +135,89 @@ class SLOFileWrapper(object):
         return self._s3_headers
 
 
+class BlobstorePutWrapper(object):
+    def __init__(self, chunk_size, chunk_queue):
+        self.chunk_size = chunk_size
+        self.queue = chunk_queue
+
+        self.chunk = None
+        self.chunk_offset = 0
+        self.closed = False
+
+    def read(self, size=-1):
+        if self.closed:
+            return ''
+        if size == -1 or size > self.chunk_size:
+            size = self.chunk_size
+        resp = ''
+        while size:
+            if size < 0:
+                raise RuntimeError('Negative chunk size')
+            if self.chunk == '':
+                self.closed = True
+                break
+            if not self.chunk or self.chunk_offset == len(self.chunk):
+                self.chunk = self.queue.get()
+                self.chunk_offset = 0
+
+            read_sz = min(size, len(self.chunk) - self.chunk_offset)
+            new_offset = self.chunk_offset + read_sz
+            resp += self.chunk[self.chunk_offset:new_offset]
+            size -= read_sz
+            self.chunk_offset = new_offset
+        return resp
+
+    def close(self):
+        self.closed = True
+        if self.chunk:
+            self.chunk = None
+            self.chunk_offset = 0
+        return
+
+
+class SwiftPutWrapper(object):
+    CHUNK_SIZE = 65536
+
+    def __init__(self, req, app):
+        self.body = req.environ['wsgi.input']
+
+        self.queue = eventlet.queue.Queue(maxsize=100)
+        req.environ['wsgi.input'] = BlobstorePutWrapper(
+            self.CHUNK_SIZE, self.queue)
+        self.put_thread = eventlet.greenthread.spawn(req.call_application, app)
+
+    def read(self, size=-1):
+        if size == -1 or size > self.CHUNK_SIZE:
+            size = self.CHUNK_SIZE
+        if hasattr(self.body, 'read'):
+            chunk = self.body.read(size)
+        else:
+            try:
+                chunk = next(self.body)
+            except StopIteration:
+                chunk = ''
+        self.queue.put(chunk)
+        # Wait for the Swift write to complete
+        if not chunk:
+            status, headers, resp_iter = self.put_thread.wait()
+
+            # TODO: Check the PUT status -- we can only log on error here, but
+            # not raise, probably, as otherwise the client request will fail
+            for _ in resp_iter:
+                # Do not expect anything returned
+                pass
+        return chunk
+
+    def __iter__(self):
+        return self
+
+    def next(self):
+        chunk = self.read(self.CHUNK_SIZE)
+        if not chunk:
+            raise StopIteration
+        return chunk
+
+
 def convert_to_s3_headers(swift_headers):
     s3_headers = {}
     for hdr in swift_headers.keys():
@@ -141,6 +226,8 @@ def convert_to_s3_headers(swift_headers):
             s3_headers[s3_header_name] = urllib.quote(swift_headers[hdr])
         elif hdr.lower() == MANIFEST_HEADER:
             s3_headers[MANIFEST_HEADER] = urllib.quote(swift_headers[hdr])
+        elif hdr.lower() == SLO_HEADER:
+            s3_headers[SLO_HEADER] = urllib.quote(swift_headers[hdr])
 
     return s3_headers
 
@@ -150,8 +237,9 @@ def convert_to_swift_headers(s3_headers):
     for header, value in s3_headers.items():
         if header in ('x-amz-id-2', 'x-amz-request-id'):
             swift_headers['Remote-' + header] = value
-        elif header.startswith(S3_USER_META_PREFIX) and not\
-                header.endswith(MANIFEST_HEADER):
+        elif header.endswith((MANIFEST_HEADER, SLO_HEADER)):
+            swift_headers[header[len(S3_USER_META_PREFIX):]] = value
+        elif header.startswith(S3_USER_META_PREFIX):
             key = SWIFT_USER_META_PREFIX + header[len(S3_USER_META_PREFIX):]
             swift_headers[key] = value
         elif header == 'content-length':
@@ -163,6 +251,22 @@ def convert_to_swift_headers(s3_headers):
         else:
             swift_headers[header] = value
     return swift_headers
+
+
+def tee_response(request, headers, body, app):
+    env = dict(request.environ)
+    env['REQUEST_METHOD'] = 'PUT'
+    put_headers = dict([(k, v) for k, v in headers
+                        if not k.startswith('Remote-')])
+    # Request requires body to implement __len__, which we will not have
+    # implemented
+    env['wsgi.input'] = body
+    env['CONTENT_LENGTH'] = put_headers['Content-Length']
+    put_req = Request.blank(
+        '',  # should pick up the path from environ
+        environ=env,
+        headers=put_headers)
+    return SwiftPutWrapper(put_req, app)
 
 
 def get_slo_etag(manifest):

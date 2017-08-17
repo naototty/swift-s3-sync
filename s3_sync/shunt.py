@@ -11,6 +11,7 @@ except ImportError:
         return logger
 
 from .provider_factory import create_provider
+from .utils import tee_response, SLO_HEADER
 
 
 class S3SyncShunt(object):
@@ -182,6 +183,16 @@ class S3SyncShunt(object):
         provider = create_provider(sync_profile, max_conns=1,
                                    per_account=per_account)
         status_code, headers, app_iter = provider.shunt_object(req, obj)
+        if req.method == 'GET' and sync_profile.get('restore_object', False):
+            # Currently, we do not support SLO objects being tiered back, as we
+            # don't record the manifest and cannot faithfully reconstruct the
+            # object
+            if SLO_HEADER in dict(headers):
+                self.logger.info('Not restoring an archived multipart '
+                                 'object %s' % obj)
+            else:
+                self.logger.debug('Restoring an archived object %s' % obj)
+                app_iter = tee_response(req, headers, app_iter, self.app)
         status = '%s %s' % (status_code, swob.RESPONSE_REASONS[status_code][0])
         self.logger.debug('Remote resp: %s' % status)
 

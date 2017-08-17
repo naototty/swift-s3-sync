@@ -5,6 +5,7 @@ from botocore.handlers import (
     conditionally_calculate_md5, set_list_objects_encoding_type_url)
 import hashlib
 import json
+import re
 import traceback
 import urllib
 
@@ -175,6 +176,12 @@ class SyncS3(BaseSync):
 
             headers = convert_to_swift_headers(
                 resp['ResponseMetadata']['HTTPHeaders'])
+            # Previously, we did not set the x-static-large-object header.
+            # Infer whether it should be set from the ETag (MPUs have a
+            # trailing -[0-9]+ (e.g. deadbeef-5).
+            if re.match('[0-9a-z]+-\d+$', headers.get('etag', '')):
+                if SLO_HEADER not in headers:
+                    headers[SLO_HEADER] = True
 
             return (resp['ResponseMetadata']['HTTPStatusCode'],
                     headers.items(),

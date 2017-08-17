@@ -624,7 +624,8 @@ class TestSyncS3(unittest.TestCase):
             Bucket=self.aws_bucket,
             Key=s3_key,
             Metadata={utils.SLO_ETAG_FIELD: 'swift-slo-etag',
-                      'foo': 'bar'})
+                      'foo': 'bar',
+                      utils.SLO_HEADER: 'True'})
 
     @mock.patch('s3_sync.sync_s3.FileWrapper')
     def test_internal_slo_upload(self, mock_file_wrapper):
@@ -880,7 +881,8 @@ class TestSyncS3(unittest.TestCase):
 
         self.mock_boto3_client.create_multipart_upload.assert_called_once_with(
             Bucket=self.aws_bucket, Key=s3_key,
-            Metadata={'new-key': 'foo', 'other-key': 'bar'},
+            Metadata={'new-key': 'foo', 'other-key': 'bar',
+                      utils.SLO_HEADER: 'True'},
             ServerSideEncryption='AES256')
         self.mock_boto3_client.upload_part_copy.assert_has_calls([
             mock.call(Bucket=self.aws_bucket, Key=s3_key, PartNumber=1,
@@ -943,7 +945,8 @@ class TestSyncS3(unittest.TestCase):
 
         self.mock_boto3_client.create_multipart_upload.assert_called_once_with(
             Bucket=self.aws_bucket, Key=s3_key,
-            Metadata={'new-key': 'foo', 'other-key': 'bar'},
+            Metadata={'new-key': 'foo', 'other-key': 'bar',
+                      utils.SLO_HEADER: 'True'},
             ServerSideEncryption='AES256')
 
     def test_validate_manifest_too_many_parts(self):

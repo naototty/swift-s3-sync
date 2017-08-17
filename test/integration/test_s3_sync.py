@@ -3,6 +3,7 @@ import botocore.exceptions
 import hashlib
 import json
 import os
+import StringIO
 import subprocess
 import swiftclient
 import time
@@ -39,6 +40,12 @@ def s3_key_name(mapping, key):
         prefix, mapping['account'], mapping['container'], key)
 
 
+def swift_content_location(mapping):
+    return '%s;%s;%s' % (mapping['aws_endpoint'],
+                         mapping['aws_identity'],
+                         mapping['aws_bucket'])
+
+
 class TestCloudSync(unittest.TestCase):
     IMAGE_NAME = 'cloud-sync/test'
     PORTS = {}
@@ -68,6 +75,7 @@ class TestCloudSync(unittest.TestCase):
     except subprocess.CalledProcessError as e:
         print e.output
         print e.retcode
+        raise
 
     CLOUD_SYNC_CONF = os.path.join(
         os.path.dirname(__file__), '../container/swift-s3-sync.conf')
@@ -172,6 +180,19 @@ class TestCloudSync(unittest.TestCase):
     def s3_archive_mapping(klass):
         return klass._find_mapping(
             lambda cont: cont['protocol'] == 's3' and not cont['retain_local'])
+
+    @classmethod
+    def s3_restore_mapping(klass):
+        return klass._find_mapping(
+            lambda cont:
+                cont['protocol'] == 's3' and cont.get('restore_object', False))
+
+    @classmethod
+    def swift_restore_mapping(klass):
+        return klass._find_mapping(
+            lambda cont:
+                cont['protocol'] == 'swift' and
+                cont.get('restore_object', False))
 
     @classmethod
     def swift_sync_mapping(klass):
@@ -294,10 +315,7 @@ class TestCloudSync(unittest.TestCase):
 
     def test_swift_archive(self):
         mapping = self.swift_archive_mapping()
-        expected_location = '%s;%s;%s' % (
-                mapping['aws_endpoint'],
-                mapping['aws_identity'],
-                mapping['aws_bucket'])
+        expected_location = swift_content_location(mapping)
 
         test_args = [
             (u'test_archive', u'testing archive put'),
@@ -310,3 +328,64 @@ class TestCloudSync(unittest.TestCase):
         for key, content in test_args:
             self._test_archive(key, content, mapping, get_etag,
                                expected_location)
+
+    def test_s3_archive_get(self):
+        content = 's3 archive and get'
+        key = 'test_s3_archive'
+        s3_mapping = self.s3_restore_mapping()
+        s3_key = s3_key_name(s3_mapping, key)
+        self.s3('put_object',
+                Bucket=s3_mapping['aws_bucket'],
+                Key=s3_key,
+                Body=StringIO.StringIO(content))
+
+        hdrs = self.local_swift(
+            'head_object', s3_mapping['container'], key)
+        self.assertIn('server', hdrs)
+        self.assertTrue(hdrs['server'].startswith('Jetty'))
+
+        hdrs, body = self.local_swift(
+            'get_object', s3_mapping['container'], key, content)
+        self.assertEqual(hashlib.md5(content).hexdigest(), hdrs['etag'])
+        swift_content = ''.join([chunk for chunk in body])
+        self.assertEqual(content, swift_content)
+        # There should be a "server" header, set to Jetty for S3Proxy
+        self.assertEqual('Jetty(9.2.z-SNAPSHOT)', hdrs['server'])
+
+        # the subsequent request should come back from Swift
+        hdrs, body = self.local_swift(
+            'get_object', s3_mapping['container'], key)
+        swift_content = ''.join([chunk for chunk in body])
+        self.assertEqual(content, swift_content)
+        self.assertEqual(False, 'server' in hdrs)
+
+    def test_swift_archive_get(self):
+        content = 'swift archive and get'
+        key = 'test_swift_archive'
+        mapping = self.swift_restore_mapping()
+        self.remote_swift('put_object', mapping['aws_bucket'], key, content)
+
+        hdrs, listing = self.local_swift('get_container', mapping['container'])
+        self.assertEqual(0, int(hdrs['x-container-object-count']))
+        for entry in listing:
+            self.assertIn('content_location', entry)
+            self.assertEqual(swift_content_location(mapping),
+                             entry['content_location'])
+
+        hdrs, body = self.local_swift(
+            'get_object', mapping['container'], key, content)
+        self.assertEqual(hashlib.md5(content).hexdigest(), hdrs['etag'])
+        swift_content = ''.join([chunk for chunk in body])
+        self.assertEqual(content, swift_content)
+
+        # the subsequent request should come back from Swift
+        hdrs, listing = self.local_swift('get_container', mapping['container'])
+        self.assertEqual(1, int(hdrs['x-container-object-count']))
+        # We get back an entry for the remote and the local object
+        self.assertIn('content_location', listing[0])
+        self.assertEqual(swift_content_location(mapping),
+                         listing[0]['content_location'])
+        self.assertFalse('content_location' in listing[1])
+        hdrs, body = self.local_swift('get_object', mapping['container'], key)
+        swift_content = ''.join([chunk for chunk in body])
+        self.assertEqual(content, swift_content)

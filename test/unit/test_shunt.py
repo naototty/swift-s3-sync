@@ -1,12 +1,16 @@
 import json
 import lxml
 import mock
+import StringIO
 import tempfile
 import unittest
 
 from swift.common import swob
 
 from s3_sync import shunt
+from s3_sync import sync_s3
+from s3_sync import sync_swift
+from s3_sync import utils
 
 
 class FakeSwift(object):
@@ -16,6 +20,15 @@ class FakeSwift(object):
     def __call__(self, env, start_response):
         self.calls.append(env)
         # Let the tests set up the responses they want
+        if env.get('__test__.response_dict'):
+            resp_dict = env['__test__.response_dict']
+            method = env['REQUEST_METHOD']
+            if method in resp_dict:
+                status = resp_dict[method].get('status', '200 OK')
+                headers = resp_dict[method].get('headers', [])
+                start_response(status, headers)
+                return resp_dict[method].get('body', '')
+
         status = env.get('__test__.status', '200 OK')
         headers = env.get('__test__.headers', [])
         body = env.get('__test__.body', ['pass'])
@@ -44,7 +57,8 @@ class TestShunt(unittest.TestCase):
                 ('trailer', 'bad'),
                 ('Transfer-Encoding', 'bad'),
                 ('Upgrade', 'bad'),
-            ], ['remote swift'])
+                ('Content-Length', len('remote swift'))
+            ], StringIO.StringIO('remote swift'))
         self.mock_shunt_s3 = self.patchers[1].__enter__()
         self.mock_shunt_s3.return_value = (
             200, [
@@ -57,14 +71,13 @@ class TestShunt(unittest.TestCase):
                 ('te', 'bad'),
                 ('trailer', 'bad'),
                 ('Transfer-Encoding', 'bad'),
-                ('Upgrade', 'bad'),
-            ], ['remote s3'])
+                ('Upgrade', 'bad')], ['remote s3'])
 
         self.mock_list_swift = self.patchers[2].__enter__()
         self.mock_list_s3 = self.patchers[3].__enter__()
 
-        with tempfile.NamedTemporaryFile() as fp:
-            json.dump({'containers': [
+        self.conf = {
+            'containers': [
                 {
                     'account': 'AUTH_a',
                     'container': u'sw\u00e9ft',
@@ -74,6 +87,7 @@ class TestShunt(unittest.TestCase):
                     'aws_identity': 'user',
                     'aws_secret': 'key',
                     'aws_endpoint': 'https://swift.example.com/auth/v1.0',
+                    'restore_object': True,
                 },
                 {
                     'account': 'AUTH_a',
@@ -91,7 +105,19 @@ class TestShunt(unittest.TestCase):
                     'aws_identity': 'user',
                     'aws_secret': 'key',
                 },
-            ]}, fp)
+                {
+                    'account': 'AUTH_tee',
+                    'container': 'tee',
+                    'propagate_delete': False,
+                    'restore_object': True,
+                    'aws_bucket': 'dest-bucket',
+                    'aws_identity': 'user',
+                    'aws_secret': 'key',
+                }]
+        }
+
+        with tempfile.NamedTemporaryFile() as fp:
+            json.dump(self.conf, fp)
             fp.flush()
             self.app = shunt.filter_factory(
                 {'conf_file': fp.name})(FakeSwift())
@@ -130,6 +156,7 @@ class TestShunt(unittest.TestCase):
                 'aws_identity': 'user',
                 'aws_secret': 'key',
                 'aws_endpoint': 'https://swift.example.com/auth/v1.0',
+                'restore_object': True,
             },
             ('AUTH_a', 's3'): {
                 'account': 'AUTH_a',
@@ -143,6 +170,15 @@ class TestShunt(unittest.TestCase):
                 'account': 'AUTH_b',
                 'container': '/*',
                 'propagate_delete': False,
+                'aws_bucket': 'dest-bucket',
+                'aws_identity': 'user',
+                'aws_secret': 'key',
+            },
+            ('AUTH_tee', 'tee'): {
+                'account': 'AUTH_tee',
+                'container': 'tee',
+                'propagate_delete': False,
+                'restore_object': True,
                 'aws_bucket': 'dest-bucket',
                 'aws_identity': 'user',
                 'aws_secret': 'key',
@@ -221,10 +257,12 @@ class TestShunt(unittest.TestCase):
                 'swift.trans_id': 'local trans id'})
             status, headers, body_iter = req.call_application(self.app)
             if expect_s3:
-                self.assertEqual(self.mock_shunt_swift.mock_calls, [])
+                self.assertEqual(
+                    self.mock_shunt_swift.mock_calls, [])
                 self.assertEqual(self.mock_shunt_s3.mock_calls, [
                     mock.call(mock.ANY, path.split('/', 4)[4])])
-                received_req = self.mock_shunt_s3.mock_calls[0][1][0]
+                received_req = self.mock_shunt_s3\
+                    .mock_calls[0][1][0]
                 self.assertEqual(req.environ, received_req.environ)
                 self.assertEqual(status, '200 OK')
                 self.assertEqual(headers, [
@@ -237,12 +275,14 @@ class TestShunt(unittest.TestCase):
                 self.assertEqual(self.mock_shunt_s3.mock_calls, [])
                 self.assertEqual(self.mock_shunt_swift.mock_calls, [
                     mock.call(mock.ANY, path.split('/', 4)[4])])
-                received_req = self.mock_shunt_swift.mock_calls[0][1][0]
+                received_req = self.mock_shunt_swift\
+                    .mock_calls[0][1][0]
                 self.assertEqual(req.environ, received_req.environ)
                 self.assertEqual(status, '200 OK')
                 self.assertEqual(headers, [
                     ('Remote-x-openstack-request-id', 'also some trans id'),
                     ('Remote-x-trans-id', 'some trans id'),
+                    ('Content-Length', 12)
                 ])
                 self.assertEqual(b''.join(body_iter), b'remote swift')
                 self.mock_shunt_swift.reset_mock()
@@ -250,6 +290,68 @@ class TestShunt(unittest.TestCase):
         _test_shunted('/v1/AUTH_a/s3/o', True)
         _test_shunted('/v1/AUTH_b/c1/o', True)
         _test_shunted('/v1/AUTH_b/c2/o', True)
+
+    @mock.patch.object(sync_swift.SyncSwift, 'shunt_object')
+    @mock.patch.object(sync_s3.SyncS3, 'shunt_object')
+    def test_tee(self, mock_s3_shunt, mock_swift_shunt):
+        payload = 'bytes from remote'
+        responses = [
+            ('AUTH_tee/tee',
+             (200,
+              # SLO should not be put back into the object store
+              [('Content-Length', len(payload)),
+               (utils.SLO_HEADER, 'True'),
+               ('etag', 'deadbeef-2')],
+              StringIO.StringIO(payload)),
+             mock_s3_shunt, False),
+            (u'AUTH_a/sw\u00e9ft',
+             (200,
+              [('Content-Length', len(payload)),
+               (utils.SLO_HEADER, 'True')],
+              StringIO.StringIO(payload)),
+             mock_swift_shunt, False),
+            ('AUTH_tee/tee',
+             (200, [('Content-Length', len(payload))],
+              StringIO.StringIO(payload)),
+             mock_s3_shunt, True),
+            (u'AUTH_a/sw\u00e9ft',
+             (200, [('Content-Length', len(payload))],
+              StringIO.StringIO(payload)),
+             mock_swift_shunt, True)
+        ]
+
+        env = {
+            '__test__.response_dict': {
+                'GET': {
+                    'status': '404 Not Found'
+                }
+            }
+        }
+
+        for path, resp, mock_call, is_put_back in responses:
+            mock_call.return_value = resp
+            req = swob.Request.blank(u'/v1/%s/foo' % path, environ=env)
+            status, headers, body_iter = req.call_application(self.app)
+            resp_body = ''
+            while True:
+                data = body_iter.read()
+                if not data:
+                    break
+                resp_body += data
+            if not is_put_back:
+                self.assertEqual(1, len(self.app.app.calls))
+            else:
+                self.assertEqual(2, len(self.app.app.calls))
+                self.assertEqual(
+                    'PUT', self.app.app.calls[1]['REQUEST_METHOD'])
+                self.assertEqual((u'/v1/%s/foo' % path).encode('utf-8'),
+                                 self.app.app.calls[1]['PATH_INFO'])
+            self.assertEqual('GET', self.app.app.calls[0]['REQUEST_METHOD'])
+            self.assertEqual((u'/v1/%s/foo' % path).encode('utf-8'),
+                             self.app.app.calls[0]['PATH_INFO'])
+            self.assertEqual(payload, resp_body)
+            mock_call.reset_mock()
+            self.app.app.calls = []
 
     def test_list_container_no_shunt(self):
         req = swob.Request.blank(
@@ -298,7 +400,8 @@ class TestShunt(unittest.TestCase):
                      'bytes': 1000,
                      'last_modified': 'date',
                      'content_type': 'type'}]
-        self.mock_list_s3.side_effect = [(200, elements), (200, [])]
+        self.mock_list_s3.side_effect = [
+            (200, elements), (200, [])]
         req = swob.Request.blank(
             '/v1/AUTH_a/s3?format=xml',
             environ={'__test__.status': '200 OK',
@@ -339,7 +442,8 @@ class TestShunt(unittest.TestCase):
                      'bytes': 1000,
                      'last_modified': 'date',
                      'content_type': 'type'}]
-        self.mock_list_s3.side_effect = [(200, elements), (200, [])]
+        self.mock_list_s3.side_effect = [
+            (200, elements), (200, [])]
         req = swob.Request.blank(
             '/v1/AUTH_a/s3',
             environ={'__test__.status': '200 OK',
@@ -381,7 +485,8 @@ class TestShunt(unittest.TestCase):
                      'bytes': 1000,
                      'last_modified': 'date',
                      'content_type': 'type'}]
-        self.mock_list_s3.side_effect = [(200, elements), (200, [])]
+        self.mock_list_s3.side_effect = [
+            (200, elements), (200, [])]
         req = swob.Request.blank(
             '/v1/AUTH_a/s3?format=json',
             environ={'__test__.status': '200 OK',
@@ -407,7 +512,8 @@ class TestShunt(unittest.TestCase):
                      'bytes': 1000,
                      'last_modified': 'date',
                      'content_type': 'type'}]
-        self.mock_list_s3.side_effect = [(200, elements), (200, [])]
+        self.mock_list_s3.side_effect = [
+            (200, elements), (200, [])]
         req = swob.Request.blank(
             '/v1/AUTH_a/s3',
             environ={'__test__.status': '200 OK',
