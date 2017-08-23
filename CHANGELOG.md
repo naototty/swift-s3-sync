@@ -1,3 +1,18 @@
+## 0.1.16 (2017-08-23)
+
+Bug fixes:
+
+    - Fix invalid arguments in the call to `get_object_metadata`, which
+      manifests during SLO metadata updates (when the object is not changed, but
+      the metadata is).
+
+Improvement:
+
+    - Lazy initialize public cloud sessions. This is useful when cloud sync
+      reaches the steady state of checking for changes on an infrequently
+      changed container. If there are no new objects to upload, no connections
+      are created.
+
 ## 0.1.15 (2017-08-07)
 
 Bug fixes:
