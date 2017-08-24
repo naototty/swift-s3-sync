@@ -4,7 +4,11 @@ import json
 from swift.common import constraints, swob, utils
 from swift.common.request_helpers import get_listing_content_type
 
-from swiftstack_auth.utils import fix_mw_logging
+try:
+    from swiftstack_auth.utils import fix_mw_logging
+except ImportError:
+    def fix_mw_logging(logger):
+        return logger
 
 from .provider_factory import create_provider
 
