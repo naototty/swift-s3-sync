@@ -118,6 +118,8 @@ class TestCloudSync(unittest.TestCase):
 
     @classmethod
     def tearDownClass(self):
+        if 'NO_TEARDOWN' in os.environ:
+            return
         for container in self.test_conf['containers']:
             if container['protocol'] == 'swift':
                 self._remove_swift_container(
