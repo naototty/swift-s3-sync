@@ -1,3 +1,15 @@
+## 0.1.17 (2017-09-06)
+
+Features:
+
+    - Support restoring objects from the archive on a GET request. This only
+      applies to regular objects. SLO (or multipart objects in S3) are not
+      restored, as we do not have the object manifest.
+
+Improvements:
+
+    - Added a docker container to be used for functional testing.
+
 ## 0.1.16 (2017-08-23)
 
 Bug fixes:
