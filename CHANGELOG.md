@@ -1,3 +1,9 @@
+## 0.1.18 (2017-09-11)
+
+Improvements:
+
+    - Reset the status row when the container policy changes.
+
 ## 0.1.17 (2017-09-06)
 
 Features:
