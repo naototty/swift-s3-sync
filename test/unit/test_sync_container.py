@@ -115,6 +115,51 @@ class TestSyncContainer(unittest.TestCase):
 
     @mock.patch('__builtin__.open')
     @mock.patch('s3_sync.sync_container.os.path.exists')
+    def test_last_row_new_policy(self, mock_exists, mock_open):
+        db_id = 'db-id-test'
+        for field in SyncContainer.POLICY_FIELDS:
+            if field != 'copy_after':
+                setattr(self.sync_container, field, False)
+            else:
+                setattr(self.sync_container, field, 42)
+        fake_status = {db_id: dict(last_row=42,
+                                   aws_bucket='bucket',
+                                   policy=dict(retain_local=True,
+                                               propagate_delete=True,
+                                               copy_after=0))}
+
+        mock_exists.return_value = True
+        mock_open.return_value = self.MockMetaConf(fake_status)
+
+        status = self.sync_container.get_last_row(db_id)
+        self.assertEqual(0, status)
+
+        mock_exists.assert_called_with('%s/%s/%s' % (
+            self.scratch_space, self.sync_container._account,
+            self.sync_container._container))
+
+    @mock.patch('__builtin__.open')
+    @mock.patch('s3_sync.sync_container.os.path.exists')
+    def test_last_row_old_policy(self, mock_exists, mock_open):
+        db_id = 'db-id-test'
+        fake_status = {db_id: dict(last_row=42,
+                                   aws_bucket='bucket',
+                                   policy=dict(retain_local=True,
+                                               propagate_delete=True,
+                                               copy_after=0))}
+
+        mock_exists.return_value = True
+        mock_open.return_value = self.MockMetaConf(fake_status)
+
+        status = self.sync_container.get_last_row(db_id)
+        self.assertEqual(42, status)
+
+        mock_exists.assert_called_with('%s/%s/%s' % (
+            self.scratch_space, self.sync_container._account,
+            self.sync_container._container))
+
+    @mock.patch('__builtin__.open')
+    @mock.patch('s3_sync.sync_container.os.path.exists')
     def test_last_row(self, mock_exists, mock_open):
         db_entries = [{'id': 'db-id-1', 'aws_bucket': 'bucket', 'last_row': 5},
                       {'id': 'db-id-2', 'aws_bucket': 'bucket', 'last_row': 7}]
@@ -155,6 +200,13 @@ class TestSyncContainer(unittest.TestCase):
                     else:
                         self.assertEqual(db_entries[file_db_id]['last_row'],
                                          status['last_row'])
+                    if db_id != file_db_id:
+                        continue
+                    else:
+                        self.assertIn('policy', status)
+                    for field in SyncContainer.POLICY_FIELDS:
+                        self.assertEqual(status['policy'][field],
+                                         getattr(self.sync_container, field))
 
                 self.assertEqual(
                     [mock.call('%s/%s' % (self.scratch_space,

@@ -15,6 +15,12 @@ from .provider_factory import create_provider
 
 
 class SyncContainer(container_crawler.base_sync.BaseSync):
+    # There is an implicit link between the names of the json fields and the
+    # object fields -- they have to be the same.
+    POLICY_FIELDS = ['copy_after',
+                     'retain_local',
+                     'propagate_delete']
+
     def __init__(self, status_dir, sync_settings, max_conns=10,
                  per_account=False):
         super(SyncContainer, self).__init__(
@@ -22,7 +28,7 @@ class SyncContainer(container_crawler.base_sync.BaseSync):
         self.logger = logging.getLogger('s3-sync')
         self.aws_bucket = sync_settings['aws_bucket']
         self.copy_after = int(sync_settings.get('copy_after', 0))
-        self.retain_copy = sync_settings.get('retain_local', True)
+        self.retain_local = sync_settings.get('retain_local', True)
         self.propagate_delete = sync_settings.get('propagate_delete', True)
         self.provider = create_provider(sync_settings, max_conns,
                                         per_account=self._per_account)
@@ -38,10 +44,15 @@ class SyncContainer(container_crawler.base_sync.BaseSync):
                     return status['last_row']
                 if db_id in status:
                     entry = status[db_id]
-                    if entry['aws_bucket'] == self.aws_bucket:
-                        return entry['last_row']
-                    else:
+                    if entry['aws_bucket'] != self.aws_bucket:
                         return 0
+                    # Prior to 0.1.18, policy was not included in the status
+                    if 'policy' in status[db_id]:
+                        for field in self.POLICY_FIELDS:
+                            value = getattr(self, field)
+                            if status[db_id]['policy'][field] != value:
+                                return 0
+                    return entry['last_row']
                 return 0
             except ValueError:
                 return 0
@@ -59,12 +70,16 @@ class SyncContainer(container_crawler.base_sync.BaseSync):
             status = json.load(f)
             # The first version did not include the DB ID and aws_bucket in the
             # status entries
+            policy = {}
+            for field in self.POLICY_FIELDS:
+                policy[field] = getattr(self, field)
+            new_status = dict(last_row=row,
+                              aws_bucket=self.aws_bucket,
+                              policy=policy)
             if 'last_row' in status:
-                status = {db_id: dict(last_row=row,
-                                      aws_bucket=self.aws_bucket)}
+                status = {db_id: new_status}
             else:
-                status[db_id] = dict(last_row=row,
-                                     aws_bucket=self.aws_bucket)
+                status[db_id] = new_status
             f.seek(0)
             json.dump(status, f)
             f.truncate()
@@ -82,7 +97,7 @@ class SyncContainer(container_crawler.base_sync.BaseSync):
                                         row['storage_policy_index'],
                                         swift_client)
 
-            if not self.retain_copy:
+            if not self.retain_local:
                 # NOTE: We rely on the DELETE object X-Timestamp header to
                 # mitigate races where the object may be overwritten. We
                 # increment the offset to ensure that we never remove new
