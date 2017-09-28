@@ -1,3 +1,9 @@
+## 0.1.18 (2017-09-28)
+
+Improvements:
+
+    - Still work with swift 2.15.1.3
+
 ## 0.1.18 (2017-09-11)
 
 Improvements:
