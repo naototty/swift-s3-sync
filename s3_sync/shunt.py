@@ -2,7 +2,12 @@ from lxml import etree
 import json
 
 from swift.common import constraints, swob, utils
-from swift.common.request_helpers import get_listing_content_type
+try:
+    from swift.common.middleware.listing_formats import (
+        get_listing_content_type)
+except ImportError:
+    # compat for < ss-swift-2.15.1.3
+    from swift.common.request_helpers import get_listing_content_type
 
 try:
     from swiftstack_auth.utils import fix_mw_logging
@@ -137,7 +142,7 @@ class S3SyncShunt(object):
 
             if cloud_name is not None:
                 if internal_name is None or \
-                        (internal_name is not None and \
+                        (internal_name is not None and
                          cloud_name <= internal_name):
                     spliced_response.append(resp[cloud_index])
                     cloud_index += 1
