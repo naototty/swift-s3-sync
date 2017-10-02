@@ -341,18 +341,24 @@ class TestSyncS3(unittest.TestCase):
         key = 'key'
 
         self.sync_s3.delete_object(key)
-        self.mock_boto3_client.delete_object.assert_called_with(
-            Bucket=self.aws_bucket,
-            Key=self.sync_s3.get_s3_name(key))
+        self.mock_boto3_client.delete_object.assert_has_calls([
+            mock.call(Bucket=self.aws_bucket,
+                      Key=self.sync_s3.get_s3_name(key)),
+            mock.call(Bucket=self.aws_bucket,
+                      Key=self.sync_s3.get_manifest_name(
+                        self.sync_s3.get_s3_name(key)))])
 
     def test_delete_missing_object(self):
         key = 'key'
         error = ClientError({'Error': {'Code': 404}}, None)
         self.mock_boto3_client.delete_object.side_effect = error
         self.sync_s3.delete_object(key)
-        self.mock_boto3_client.delete_object.assert_called_with(
-            Bucket=self.aws_bucket,
-            Key=self.sync_s3.get_s3_name(key))
+        self.mock_boto3_client.delete_object.assert_has_calls([
+            mock.call(Bucket=self.aws_bucket,
+                      Key=self.sync_s3.get_s3_name(key)),
+            mock.call(Bucket=self.aws_bucket,
+                      Key=self.sync_s3.get_manifest_name(
+                        self.sync_s3.get_s3_name(key)))])
 
     @mock.patch('s3_sync.sync_s3.boto3.session.Session')
     def test_s3_name(self, mock_session):
@@ -466,8 +472,10 @@ class TestSyncS3(unittest.TestCase):
             mock.call().meta.events.unregister(
                 'before-parameter-build.s3.ListObjects', mock.ANY)])
         self.assertEqual(True, sync._google())
-        client.delete_object.assert_called_once_with(
-            Bucket=self.aws_bucket, Key=sync.get_s3_name('object'))
+        client.delete_object.assert_has_calls([
+            mock.call(Bucket=self.aws_bucket, Key=sync.get_s3_name('object')),
+            mock.call(Bucket=self.aws_bucket,
+                      Key=sync.get_manifest_name(sync.get_s3_name('object')))])
 
     def test_user_agent(self):
         boto3_ua = boto3.session.Session()._session.user_agent()
@@ -533,9 +541,12 @@ class TestSyncS3(unittest.TestCase):
                                  sync._google())
 
                 self.assertEqual(ua, called_config.user_agent)
-                client.delete_object.assert_called_once_with(
-                    Bucket=settings['aws_bucket'],
-                    Key=sync.get_s3_name('object'))
+                client.delete_object.assert_has_calls([
+                    mock.call(Bucket=settings['aws_bucket'],
+                              Key=sync.get_s3_name('object')),
+                    mock.call(Bucket=settings['aws_bucket'],
+                              Key=sync.get_manifest_name(
+                                sync.get_s3_name('object')))])
 
     def test_google_slo_upload(self):
         self.sync_s3._google = lambda: True

@@ -28,6 +28,7 @@ class SyncS3(BaseSync):
     GOOGLE_API = 'https://storage.googleapis.com'
     CLOUD_SYNC_VERSION = '5.0'
     GOOGLE_UA_STRING = 'CloudSync/%s (GPN:SwiftStack)' % CLOUD_SYNC_VERSION
+    SLO_MANIFEST_SUFFIX = '.swift_slo_manifest'
 
     def _is_amazon(self):
         return not self.endpoint or self.endpoint.endswith('amazonaws.com')
@@ -134,9 +135,8 @@ class SyncS3(BaseSync):
                 params['ServerSideEncryption'] = 'AES256'
             s3_client.put_object(**params)
 
-    def delete_object(self, swift_key, internal_client=None):
-        s3_key = self.get_s3_name(swift_key)
-        self.logger.debug('Deleting object %s' % s3_key)
+    def _delete_not_found(self, s3_key):
+        '''Deletes the object and ignores the 404 Not Found error.'''
         with self.client_pool.get_client() as boto_client:
             s3_client = boto_client.client
             try:
@@ -147,6 +147,13 @@ class SyncS3(BaseSync):
                         s3_key, self.aws_bucket))
                 else:
                     raise
+
+    def delete_object(self, swift_key, internal_client=None):
+        s3_key = self.get_s3_name(swift_key)
+        self.logger.debug('Deleting object %s' % s3_key)
+        self._delete_not_found(s3_key)
+        # If there is a manifest uploaded for this object, remove it as well
+        self._delete_not_found(self.get_manifest_name(s3_key))
 
     def shunt_object(self, req, swift_key):
         """Fetch an object from the remote cluster to stream back to a client.
@@ -402,6 +409,17 @@ class SyncS3(BaseSync):
                 self._abort_upload(s3_key, upload_id, client=s3_client)
                 raise
 
+            # We upload the manifest so that we can restore the object in
+            # Swift and have it match the S3 multipart ETag. To avoid name
+            # length issues, we hash the object name and append the suffix
+            params = dict(
+                Bucket=self.aws_bucket,
+                Key=self.get_manifest_name(s3_key),
+                Body=json.dumps(manifest))
+            if self._is_amazon() and self.encryption:
+                params['ServerSideEncryption'] = 'AES256'
+            s3_client.put_object(**params)
+
     def _abort_upload(self, s3_key, upload_id, client=None):
         if not client:
             with self.client_pool.get_client() as boto_client:
@@ -461,7 +479,28 @@ class SyncS3(BaseSync):
         return hex(long(md5_hash, 16) % self.PREFIX_SPACE)[2:-1]
 
     def get_s3_name(self, key):
-        return '%s/%s' % (self.get_prefix(), self._full_name(key))
+        return u'%s/%s' % (self.get_prefix(), self._full_name(key))
+
+    def get_manifest_name(self, s3_name):
+        # Split 3 times, as the format is:
+        # <prefix>/<account>/<container>/<object>
+        prefix, account, container, obj = s3_name.split('/', 3)
+        obj_hash = hashlib.sha256(obj.encode('utf-8')).hexdigest()
+        return u'/'.join([
+            prefix, '.manifests', account, container,
+            '%s%s' % (obj_hash, self.SLO_MANIFEST_SUFFIX)])
+
+    def get_manifest(self, key):
+        with self.client_pool.get_client() as boto_client:
+            try:
+                resp = boto_client.client.get_object(
+                    Bucket=self.aws_bucket,
+                    Key=self.get_manifest_name(self.get_s3_name(key)))
+                return json.load(resp['Body'])
+            except Exception as e:
+                self.logger.warning(
+                    'Failed to fetch the manifest: %s' % e)
+                return None
 
     def update_slo_metadata(self, swift_meta, manifest, s3_key, req_headers,
                             internal_client):

@@ -1,9 +1,11 @@
 import eventlet
 import hashlib
+import json
+import StringIO
 import urllib
 
-from swift.common.utils import FileLikeIter
 from swift.common.swob import Request
+from swift.common.utils import FileLikeIter, close_if_possible
 
 
 SWIFT_USER_META_PREFIX = 'x-object-meta-'
@@ -178,15 +180,26 @@ class BlobstorePutWrapper(object):
 class SwiftPutWrapper(object):
     CHUNK_SIZE = 65536
 
-    def __init__(self, req, app):
-        self.body = req.environ['wsgi.input']
+    def __init__(self, body, headers, path, app, logger):
+        self.body = body
+        self.app = app
+        self.headers = headers
+        self.path = path
+        self.logger = logger
+        self.queue = eventlet.queue.Queue(maxsize=15)
+        self.put_wrapper = BlobstorePutWrapper(self.CHUNK_SIZE, self.queue)
+        self.put_thread = eventlet.greenthread.spawn(
+            self._create_put_request().get_response, self.app)
 
-        self.queue = eventlet.queue.Queue(maxsize=100)
-        req.environ['wsgi.input'] = BlobstorePutWrapper(
-            self.CHUNK_SIZE, self.queue)
-        self.put_thread = eventlet.greenthread.spawn(req.call_application, app)
+    def _create_put_request(self):
+        env = {'REQUEST_METHOD': 'PUT',
+               'wsgi.input': self.put_wrapper}
+        return Request.blank(
+            self.path,
+            environ=env,
+            headers=self.headers)
 
-    def read(self, size=-1):
+    def _read_chunk(self, size):
         if size == -1 or size > self.CHUNK_SIZE:
             size = self.CHUNK_SIZE
         if hasattr(self.body, 'read'):
@@ -196,16 +209,21 @@ class SwiftPutWrapper(object):
                 chunk = next(self.body)
             except StopIteration:
                 chunk = ''
-        self.queue.put(chunk)
-        # Wait for the Swift write to complete
-        if not chunk:
-            status, headers, resp_iter = self.put_thread.wait()
+        return chunk
 
-            # TODO: Check the PUT status -- we can only log on error here, but
-            # not raise, probably, as otherwise the client request will fail
-            for _ in resp_iter:
-                # Do not expect anything returned
-                pass
+    def _wait_for_put(self):
+        resp = self.put_thread.wait()
+        if not resp.is_success and self.logger:
+            self.logger.warning(
+                'Failed to restore the object: %d' % resp.status)
+        close_if_possible(resp.app_iter)
+        return resp
+
+    def read(self, size=-1):
+        chunk = self._read_chunk(size)
+        self.queue.put(chunk)
+        if not chunk:
+            self._wait_for_put()
         return chunk
 
     def __iter__(self):
@@ -215,6 +233,130 @@ class SwiftPutWrapper(object):
         chunk = self.read(self.CHUNK_SIZE)
         if not chunk:
             raise StopIteration
+        return chunk
+
+
+class SwiftSloPutWrapper(SwiftPutWrapper):
+    def __init__(self, body, headers, path, app, manifest, logger):
+        self.manifest = manifest
+        self.segment_index = 0
+        self.remainder = self.manifest[0]['bytes']
+        self.failed = False
+
+        super(SwiftSloPutWrapper, self).__init__(
+            body, headers, path, app, logger)
+
+    def _create_request_path(self, target):
+        # The path is /<version>/<account>/<container>/<object>. We strip off
+        # the container and object from the path.
+        parts = self.path.split('/', 3)[:3]
+        # [1:] strips off the leading "/" that manifest names include
+        parts.append(target)
+        return '/'.join(parts)
+
+    def _ensure_segments_container(self):
+        env = {'REQUEST_METHOD': 'PUT'}
+        segment_path = self.manifest[self.segment_index]['name']
+        container_path = segment_path.split('/', 2)[1]
+        req = Request.blank(
+            # The manifest path is /<container>/<object>
+            self._create_request_path(container_path),
+            environ=env)
+        resp = req.get_response(self.app)
+        if not resp.is_success:
+            self.failed = True
+            if self.logger:
+                self.logger.warning(
+                    'Failed to create the segment container %s: %s' % (
+                        container_path, resp.status))
+        close_if_possible(resp.app_iter)
+
+    def _create_put_request(self):
+        self._ensure_segments_container()
+        env = {'REQUEST_METHOD': 'PUT',
+               'wsgi.input': self.put_wrapper,
+               'CONTENT_LENGTH': self.manifest[self.segment_index]['bytes']}
+        return Request.blank(
+            self._create_request_path(
+                self.manifest[self.segment_index]['name'][1:]),
+            environ=env)
+
+    def _upload_manifest(self):
+        SLO_FIELD_MAP = {
+            'bytes': 'size_bytes',
+            'hash': 'etag',
+            'name': 'path',
+            'range': 'range'
+        }
+
+        env = {}
+        env['REQUEST_METHOD'] = 'PUT'
+        # We have to transform the SLO fields, as Swift internally uses a
+        # different representation from what the client submits. Unfortunately,
+        # when we extract the manifest with the InternalClient, we don't have
+        # SLO in the pipeline and retrieve the internal represenation.
+        put_manifest = [
+            dict([(SLO_FIELD_MAP[k], v) for k, v in entry.items()
+                  if k in SLO_FIELD_MAP])
+            for entry in self.manifest]
+
+        content = json.dumps(put_manifest)
+        env['wsgi.input'] = StringIO.StringIO(content)
+        env['CONTENT_LENGTH'] = len(content)
+        env['QUERY_STRING'] = 'multipart-manifest=put'
+        # The SLO header must not be set on manifest PUT and we should remove
+        # the content length of the whole SLO, as we will overwrite it with the
+        # length of the manifest itself.
+        if SLO_HEADER in self.headers:
+            del self.headers[SLO_HEADER]
+        del self.headers['Content-Length']
+        req = Request.blank(self.path, environ=env, headers=self.headers)
+        resp = req.get_response(self.app)
+        if self.logger:
+            if resp.status_int == 202:
+                self.logger.warning(
+                    'SLO %s possibly already overwritten' % self.path)
+            elif not resp.is_success:
+                self.logger.warning('Failed to create the manifest %s: %s' % (
+                    self.path, resp.status))
+        close_if_possible(resp.app_iter)
+
+    def read(self, size=-1):
+        chunk = self._read_chunk(size)
+        # On failure, we pass through the data and abort the attempt to restore
+        # into the object store.
+        if self.failed:
+            return chunk
+
+        if self.remainder - len(chunk) >= 0:
+            self.remainder -= len(chunk)
+            self.queue.put(chunk)
+        else:
+            if self.remainder > 0:
+                self.queue.put(chunk[:self.remainder])
+            self.queue.put('')
+            resp = self._wait_for_put()
+            if not resp.is_success:
+                if self.logger:
+                    self.logger.warning(
+                        'Failed to restore segment %s: %s' % (
+                            self.manifest[self.segment_index]['name'],
+                            resp.status))
+                self.failed = True
+                return chunk
+
+            self.segment_index += 1
+            self.put_wrapper = BlobstorePutWrapper(self.CHUNK_SIZE, self.queue)
+            self.put_thread = eventlet.greenthread.spawn(
+                self._create_put_request().get_response, self.app)
+            self.queue.put(chunk[self.remainder:])
+            segment_length = self.manifest[self.segment_index]['bytes']
+            self.remainder = segment_length - (len(chunk) - self.remainder)
+
+        if not chunk:
+            self._wait_for_put()
+            # Upload the manifest
+            self._upload_manifest()
         return chunk
 
 
@@ -255,22 +397,6 @@ def convert_to_swift_headers(s3_headers):
     return swift_headers
 
 
-def tee_response(request, headers, body, app):
-    env = dict(request.environ)
-    env['REQUEST_METHOD'] = 'PUT'
-    put_headers = dict([(k, v) for k, v in headers
-                        if not k.startswith('Remote-')])
-    # Request requires body to implement __len__, which we will not have
-    # implemented
-    env['wsgi.input'] = body
-    env['CONTENT_LENGTH'] = put_headers['Content-Length']
-    put_req = Request.blank(
-        '',  # should pick up the path from environ
-        environ=env,
-        headers=put_headers)
-    return SwiftPutWrapper(put_req, app)
-
-
 def get_slo_etag(manifest):
     etags = [segment['hash'].decode('hex') for segment in manifest]
     md5_hash = hashlib.md5()
@@ -281,4 +407,4 @@ def get_slo_etag(manifest):
 def check_slo(swift_meta):
     if SLO_HEADER not in swift_meta:
         return False
-    return swift_meta[SLO_HEADER] == 'True'
+    return swift_meta[SLO_HEADER].lower() == 'true'
