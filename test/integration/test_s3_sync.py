@@ -16,6 +16,12 @@ def clear_swift_container(client, container):
         client.delete_object(container, obj['name'])
 
 
+def clear_s3_bucket(client, bucket):
+    list_results = client.list_objects(Bucket=bucket)
+    for obj in list_results.get('Contents', []):
+        client.delete_object(Bucket=bucket, Key=obj['Key'])
+
+
 def wait_for_condition(timeout, checker):
     start = time.time()
     while time.time() < start + timeout:
@@ -134,12 +140,7 @@ class TestCloudSync(unittest.TestCase):
                     self.swift_dst, container['aws_bucket'])
             else:
                 try:
-                    list_results = self.s3_client.list_objects(
-                        Bucket=container['aws_bucket'])
-                    for obj in list_results.get('Contents', []):
-                        self.s3_client.delete_object(
-                            Bucket=container['aws_bucket'],
-                            Key=obj['Key'])
+                    clear_s3_bucket(self.s3_client, container['aws_bucket'])
                 except botocore.exceptions.ClientError as e:
                     if e.response['Error']['Code'] == 'NoSuchBucket':
                         continue
@@ -358,6 +359,86 @@ class TestCloudSync(unittest.TestCase):
         swift_content = ''.join([chunk for chunk in body])
         self.assertEqual(content, swift_content)
         self.assertEqual(False, 'server' in hdrs)
+        clear_s3_bucket(self.s3_client, s3_mapping['aws_bucket'])
+        clear_swift_container(self.swift_src, s3_mapping['container'])
+
+    def test_s3_archive_slo_restore(self):
+        # Satisfy the 5MB minimum MPU part size
+        content = 'A' * (6 * 1024 * 1024)
+        key = 'test_swift_archive'
+        mapping = self.s3_restore_mapping()
+        s3_key = s3_key_name(mapping, key)
+        manifest_key = s3_key_name
+        prefix, account, container, _ = s3_key.split('/', 3)
+        key_hash = hashlib.sha256(key).hexdigest()
+        manifest_key = '/'.join([
+            prefix, '.manifests', account, container,
+            '%s.swift_slo_manifest' % (key_hash)])
+        manifest = [
+            {'bytes': 5 * 1024 * 1024, 'name': '/segments/part1'},
+            {'bytes': 1024 * 1024, 'name': '/segments/part2'}]
+        self.s3('put_object',
+                Bucket=mapping['aws_bucket'],
+                Key=manifest_key,
+                Body=json.dumps(manifest))
+        resp = self.s3('create_multipart_upload',
+                       Bucket=mapping['aws_bucket'],
+                       Key=s3_key,
+                       Metadata={'x-static-large-object': 'True'})
+        self.s3('upload_part',
+                Bucket=mapping['aws_bucket'],
+                Key=s3_key,
+                PartNumber=1,
+                UploadId=resp['UploadId'],
+                Body=content[:(5 * 1024 * 1024)])
+        self.s3('upload_part',
+                Bucket=mapping['aws_bucket'],
+                Key=s3_key,
+                PartNumber=2,
+                UploadId=resp['UploadId'],
+                Body=content[(5 * 1024 * 1024):])
+        self.s3('complete_multipart_upload',
+                Bucket=mapping['aws_bucket'],
+                Key=s3_key,
+                UploadId=resp['UploadId'],
+                MultipartUpload={
+                    'Parts': [
+                        {'PartNumber': 1,
+                         'ETag': hashlib.md5(
+                            content[:(5 * 1024 * 1024)]).hexdigest()},
+                        {'PartNumber': 2,
+                         'ETag': hashlib.md5(
+                            content[(5 * 1024 * 1024):]).hexdigest()}]})
+
+        hdrs, listing = self.local_swift('get_container', mapping['container'])
+        self.assertEqual(0, int(hdrs['x-container-object-count']))
+        for entry in listing:
+            self.assertIn('content_location', entry)
+
+        hdrs, body = self.local_swift(
+            'get_object', mapping['container'], key, content)
+        # NOTE: this is different from real S3 as all of the parts are merged
+        # and this is the content ETag
+        self.assertEqual(hashlib.md5(content).hexdigest(), hdrs['etag'])
+        swift_content = ''.join([chunk for chunk in body])
+        self.assertEqual(content, swift_content)
+        self.assertEqual('True', hdrs['x-static-large-object'])
+
+        # the subsequent request should come back from Swift
+        hdrs, listing = self.local_swift('get_container', mapping['container'])
+        self.assertEqual(1, int(hdrs['x-container-object-count']))
+        # We get back an entry for the remote and the local object
+        self.assertIn('content_location', listing[0])
+        self.assertFalse('content_location' in listing[1])
+        hdrs, body = self.local_swift('get_object', mapping['container'], key)
+        swift_content = ''.join([chunk for chunk in body])
+        self.assertEqual(content, swift_content)
+
+        for k in hdrs.keys():
+            self.assertEqual(False, k.startswith('Remote-'))
+        clear_s3_bucket(self.s3_client, mapping['aws_bucket'])
+        clear_swift_container(self.swift_src, mapping['container'])
+        clear_swift_container(self.swift_src, 'segments')
 
     def test_swift_archive_get(self):
         content = 'swift archive and get'
@@ -389,3 +470,55 @@ class TestCloudSync(unittest.TestCase):
         hdrs, body = self.local_swift('get_object', mapping['container'], key)
         swift_content = ''.join([chunk for chunk in body])
         self.assertEqual(content, swift_content)
+        clear_swift_container(self.swift_dst, mapping['aws_bucket'])
+        clear_swift_container(self.swift_src, mapping['container'])
+
+    def test_swift_archive_slo_restore(self):
+        content = 'A' * 2048
+        key = 'test_swift_archive'
+        mapping = self.swift_restore_mapping()
+        manifest = [
+            {'size_bytes': 1024, 'path': '/segments/part1'},
+            {'size_bytes': 1024, 'path': '/segments/part2'}]
+        self.remote_swift('put_container', 'segments')
+        self.remote_swift('put_object', 'segments', 'part1', content[:1024])
+        self.remote_swift('put_object', 'segments', 'part2', content[1024:])
+        self.remote_swift('put_object', mapping['aws_bucket'], key,
+                          json.dumps(manifest),
+                          query_string='multipart-manifest=put')
+
+        hdrs, listing = self.local_swift('get_container', mapping['container'])
+        self.assertEqual(0, int(hdrs['x-container-object-count']))
+        for entry in listing:
+            self.assertIn('content_location', entry)
+            self.assertEqual(swift_content_location(mapping),
+                             entry['content_location'])
+
+        slo_etag = hashlib.md5(''.join([
+            hashlib.md5(content[:1024]).hexdigest(),
+            hashlib.md5(content[1024:]).hexdigest()])).hexdigest()
+        hdrs, body = self.local_swift(
+            'get_object', mapping['container'], key, content)
+        self.assertEqual('"%s"' % slo_etag, hdrs['etag'])
+        swift_content = ''.join([chunk for chunk in body])
+        self.assertEqual(content, swift_content)
+        self.assertEqual('True', hdrs['x-static-large-object'])
+
+        # the subsequent request should come back from Swift
+        hdrs, listing = self.local_swift('get_container', mapping['container'])
+        self.assertEqual(1, int(hdrs['x-container-object-count']))
+        # We get back an entry for the remote and the local object
+        self.assertIn('content_location', listing[0])
+        self.assertEqual(swift_content_location(mapping),
+                         listing[0]['content_location'])
+        self.assertFalse('content_location' in listing[1])
+        hdrs, body = self.local_swift('get_object', mapping['container'], key)
+        swift_content = ''.join([chunk for chunk in body])
+        self.assertEqual(content, swift_content)
+
+        for k in hdrs.keys():
+            self.assertEqual(False, k.startswith('Remote-'))
+        clear_swift_container(self.swift_dst, mapping['aws_bucket'])
+        clear_swift_container(self.swift_dst, 'segments')
+        clear_swift_container(self.swift_src, mapping['container'])
+        clear_swift_container(self.swift_src, 'segments')

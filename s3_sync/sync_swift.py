@@ -270,6 +270,17 @@ class SyncSwift(BaseSync):
                                     headers=self._get_user_headers(headers),
                                     query_string='multipart-manifest=put')
 
+    def get_manifest(self, key):
+        with self.client_pool.get_client() as client:
+            try:
+                headers, body = client.client.get_object(
+                    self.remote_container, key,
+                    query_string='multipart-manifest=get')
+                return json.loads(body)
+            except Exception as e:
+                self.logger.warning('Failed to fetch the manifest: %s' % e)
+                return None
+
     def _upload_slo_worker(self, req_headers, work_queue, internal_client):
         errors = []
         while True:

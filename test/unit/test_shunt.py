@@ -233,7 +233,9 @@ class TestShunt(unittest.TestCase):
         _test_methods('/v1/AUTH_a/s3/o',
                       ('OPTIONS', 'PUT', 'POST', 'DELETE'))
 
-    def test_object_shunt(self):
+    @mock.patch.object(sync_swift.SyncSwift, 'get_manifest')
+    @mock.patch.object(sync_s3.SyncS3, 'get_manifest')
+    def test_object_shunt(self, mock_s3_manifest, mock_swift_manifest):
         def _test_no_shunt(path, status):
             req = swob.Request.blank(path, environ={
                 '__test__.status': status,
@@ -291,25 +293,27 @@ class TestShunt(unittest.TestCase):
         _test_shunted('/v1/AUTH_b/c1/o', True)
         _test_shunted('/v1/AUTH_b/c2/o', True)
 
+    @mock.patch.object(sync_swift.SyncSwift, 'get_manifest')
+    @mock.patch.object(sync_s3.SyncS3, 'get_manifest')
     @mock.patch.object(sync_swift.SyncSwift, 'shunt_object')
     @mock.patch.object(sync_s3.SyncS3, 'shunt_object')
-    def test_tee(self, mock_s3_shunt, mock_swift_shunt):
+    def test_tee(self, mock_s3_shunt, mock_swift_shunt, mock_s3_get_manifest,
+                 mock_swift_get_manifest):
         payload = 'bytes from remote'
         responses = [
             ('AUTH_tee/tee',
              (200,
-              # SLO should not be put back into the object store
               [('Content-Length', len(payload)),
                (utils.SLO_HEADER, 'True'),
                ('etag', 'deadbeef-2')],
               StringIO.StringIO(payload)),
-             mock_s3_shunt, False),
+             mock_s3_shunt, True),
             (u'AUTH_a/sw\u00e9ft',
              (200,
               [('Content-Length', len(payload)),
                (utils.SLO_HEADER, 'True')],
               StringIO.StringIO(payload)),
-             mock_swift_shunt, False),
+             mock_swift_shunt, True),
             ('AUTH_tee/tee',
              (200, [('Content-Length', len(payload))],
               StringIO.StringIO(payload)),
@@ -329,6 +333,17 @@ class TestShunt(unittest.TestCase):
         }
 
         for path, resp, mock_call, is_put_back in responses:
+            if dict(resp[1]).get('etag', '').endswith('-2') or\
+                    utils.SLO_HEADER in dict(resp[1]):
+                is_slo = True
+            else:
+                is_slo = False
+            if is_slo:
+                manifest = [{
+                    'bytes': len(payload),
+                    'name': '/segments/part1'}]
+                mock_s3_get_manifest.return_value = manifest
+                mock_swift_get_manifest.return_value = manifest
             mock_call.return_value = resp
             req = swob.Request.blank(u'/v1/%s/foo' % path, environ=env)
             status, headers, body_iter = req.call_application(self.app)
@@ -340,6 +355,23 @@ class TestShunt(unittest.TestCase):
                 resp_body += data
             if not is_put_back:
                 self.assertEqual(1, len(self.app.app.calls))
+            elif is_slo:
+                self.assertEqual(4, len(self.app.app.calls))
+                self.assertEqual(
+                    'PUT', self.app.app.calls[1]['REQUEST_METHOD'])
+                account = path.split('/', 1)[0]
+                self.assertEqual((u'/v1/%s/segments' % account),
+                                 self.app.app.calls[1]['PATH_INFO'])
+                self.assertEqual(
+                    'PUT', self.app.app.calls[2]['REQUEST_METHOD'])
+                self.assertEqual((u'/v1/%s/segments/part1' % account),
+                                 self.app.app.calls[2]['PATH_INFO'])
+                self.assertEqual(
+                    'PUT', self.app.app.calls[3]['REQUEST_METHOD'])
+                self.assertEqual((u'/v1/%s/foo' % path).encode('utf-8'),
+                                 self.app.app.calls[3]['PATH_INFO'])
+                self.assertEqual('multipart-manifest=put',
+                                 self.app.app.calls[3]['QUERY_STRING'])
             else:
                 self.assertEqual(2, len(self.app.app.calls))
                 self.assertEqual(

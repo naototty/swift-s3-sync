@@ -16,7 +16,7 @@ except ImportError:
         return logger
 
 from .provider_factory import create_provider
-from .utils import tee_response, SLO_HEADER
+from .utils import check_slo, SwiftPutWrapper, SwiftSloPutWrapper
 
 
 class S3SyncShunt(object):
@@ -187,17 +187,34 @@ class S3SyncShunt(object):
 
         provider = create_provider(sync_profile, max_conns=1,
                                    per_account=per_account)
-        status_code, headers, app_iter = provider.shunt_object(req, obj)
         if req.method == 'GET' and sync_profile.get('restore_object', False):
-            # Currently, we do not support SLO objects being tiered back, as we
-            # don't record the manifest and cannot faithfully reconstruct the
-            # object
-            if SLO_HEADER in dict(headers):
-                self.logger.info('Not restoring an archived multipart '
-                                 'object %s' % obj)
-            else:
-                self.logger.debug('Restoring an archived object %s' % obj)
-                app_iter = tee_response(req, headers, app_iter, self.app)
+            # We incur an extra request hit by checking for a possible SLO.
+            manifest = provider.get_manifest(obj)
+            self.logger.debug("Manifest: %s" % manifest)
+            status_code, headers, app_iter = provider.shunt_object(req, obj)
+            put_headers = dict([(k, v) for k, v in headers
+                                if not k.startswith('Remote-')])
+            if 'etag' in put_headers:
+                put_headers['Content-MD5'] = put_headers['etag']
+                del put_headers['etag']
+            # We must remove the X-Timestamp header, as otherwise objects may
+            # never be restored if a tombstone is present (as the remote
+            # timestamp may be older than then tombstone). Only happens if
+            # restoring from Swift.
+            if 'x-timestamp' in put_headers:
+                del put_headers['x-timestamp']
+
+            if status_code == 200:
+                if check_slo(put_headers) and manifest:
+                    app_iter = SwiftSloPutWrapper(
+                        app_iter, put_headers, req.environ['PATH_INFO'],
+                        self.app, manifest, self.logger)
+                else:
+                    app_iter = SwiftPutWrapper(
+                        app_iter, put_headers, req.environ['PATH_INFO'],
+                        self.app, self.logger)
+        else:
+            status_code, headers, app_iter = provider.shunt_object(req, obj)
         status = '%s %s' % (status_code, swob.RESPONSE_REASONS[status_code][0])
         self.logger.debug('Remote resp: %s' % status)
 
