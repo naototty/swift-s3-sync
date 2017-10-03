@@ -139,7 +139,14 @@ class SyncS3(BaseSync):
         self.logger.debug('Deleting object %s' % s3_key)
         with self.client_pool.get_client() as boto_client:
             s3_client = boto_client.client
-            s3_client.delete_object(Bucket=self.aws_bucket, Key=s3_key)
+            try:
+                s3_client.delete_object(Bucket=self.aws_bucket, Key=s3_key)
+            except botocore.exceptions.ClientError as e:
+                if int(e.response['Error']['Code']) == 404:
+                    self.logger.warning('%s already removed from %s' % (
+                        s3_key, self.aws_bucket))
+                else:
+                    raise
 
     def shunt_object(self, req, swift_key):
         """Fetch an object from the remote cluster to stream back to a client.

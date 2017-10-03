@@ -345,6 +345,15 @@ class TestSyncS3(unittest.TestCase):
             Bucket=self.aws_bucket,
             Key=self.sync_s3.get_s3_name(key))
 
+    def test_delete_missing_object(self):
+        key = 'key'
+        error = ClientError({'Error': {'Code': 404}}, None)
+        self.mock_boto3_client.delete_object.side_effect = error
+        self.sync_s3.delete_object(key)
+        self.mock_boto3_client.delete_object.assert_called_with(
+            Bucket=self.aws_bucket,
+            Key=self.sync_s3.get_s3_name(key))
+
     @mock.patch('s3_sync.sync_s3.boto3.session.Session')
     def test_s3_name(self, mock_session):
         test_data = [('AUTH_test', 'container', 'key'),
