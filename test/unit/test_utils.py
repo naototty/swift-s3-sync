@@ -12,12 +12,14 @@ class TestUtilsFunctions(unittest.TestCase):
                       'x-object-meta-Bar': 'Bar',
                       'X-Object-Meta-upper': '1',
                       'X-ObJeCT-Meta-CraZy': 'CrAzY',
-                      'X-Object-Manifest': 'container/key/123415/prefix'}
+                      'X-Object-Manifest': 'container/key/123415/prefix',
+                      'Content-Type': 'application/testing'}
         out = utils.convert_to_s3_headers(input_hdrs)
         expected = dict([(key[len('x-object-meta-'):].lower(), value) for
                          key, value in input_hdrs.items() if
                          key.lower().startswith(utils.SWIFT_USER_META_PREFIX)])
         expected[utils.MANIFEST_HEADER] = input_hdrs['X-Object-Manifest']
+        expected['Content-Type'] = input_hdrs['Content-Type']
         self.assertEqual(set(expected.keys()), set(out.keys()))
         for key in out.keys():
             self.assertEqual(expected[key], out[key])

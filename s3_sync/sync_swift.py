@@ -325,6 +325,6 @@ class SyncSwift(BaseSync):
 
     @staticmethod
     def _get_user_headers(all_headers):
-        hdrs = dict([(key, value) for key, value in all_headers.items()
-                     if key.lower().startswith(SWIFT_USER_META_PREFIX)])
-        return hdrs
+        return dict([(key, value) for key, value in all_headers.items()
+                     if key.lower().startswith(SWIFT_USER_META_PREFIX) or
+                     key.lower() == 'content-type'])

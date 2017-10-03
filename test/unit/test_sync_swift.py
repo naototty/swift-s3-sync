@@ -36,7 +36,9 @@ class TestSyncSwift(unittest.TestCase):
 
         wrapper = mock.Mock()
         wrapper.__len__ = lambda s: 0
-        wrapper.get_headers.return_value = {'etag': 'deadbeef'}
+        wrapper.get_headers.return_value = {
+            'etag': 'deadbeef',
+            'Content-Type': 'application/testing'}
         mock_file_wrapper.return_value = wrapper
         not_found = swiftclient.exceptions.ClientException('not found',
                                                            http_status=404)
@@ -53,7 +55,9 @@ class TestSyncSwift(unittest.TestCase):
                                              key, swift_req_headers)
 
         swift_client.put_object.assert_called_with(
-            self.aws_bucket, key, wrapper, headers={}, etag='deadbeef',
+            self.aws_bucket, key, wrapper,
+            headers={'Content-Type': 'application/testing'},
+            etag='deadbeef',
             content_length=0)
 
     @mock.patch('s3_sync.sync_swift.swiftclient.client.Connection')
@@ -97,6 +101,7 @@ class TestSyncSwift(unittest.TestCase):
         etag = '1234'
         swift_object_meta = {'x-object-meta-new': 'new',
                              'x-object-meta-old': 'updated',
+                             'Content-Type': 'application/bar',
                              'etag': etag}
         swift_client = mock.Mock()
         mock_swift.return_value = swift_client
@@ -104,14 +109,17 @@ class TestSyncSwift(unittest.TestCase):
         mock_ic = mock.Mock()
         mock_ic.get_object_metadata.return_value = swift_object_meta
         swift_client.head_object.return_value = {
-            'x-object-meta-old': 'old', 'etag': '%s' % etag}
+            'x-object-meta-old': 'old',
+            'etag': '%s' % etag,
+            'Content-Type': 'application/foo'}
 
         self.sync_swift.upload_object(key, storage_policy, mock_ic)
 
         swift_client.post_object.assert_called_with(
             self.aws_bucket, key,
             {'x-object-meta-new': 'new',
-             'x-object-meta-old': 'updated'})
+             'x-object-meta-old': 'updated',
+             'Content-Type': 'application/bar'})
 
     @mock.patch('s3_sync.sync_swift.swiftclient.client.Connection')
     def test_meta_unicode(self, mock_swift):
@@ -208,12 +216,14 @@ class TestSyncSwift(unittest.TestCase):
 
         def get_metadata(account, container, key, headers):
             if key == slo_key:
-                return {utils.SLO_HEADER: 'True'}
+                return {utils.SLO_HEADER: 'True',
+                        'Content-Type': 'application/slo'}
             raise RuntimeError('Unknown key')
 
         def get_object(account, container, key, headers):
             if key == slo_key:
-                return (200, {utils.SLO_HEADER: 'True'},
+                return (200, {utils.SLO_HEADER: 'True',
+                              'Content-Type': 'application/slo'},
                         FakeStream(content=json.dumps(manifest)))
             if container == 'segment_container':
                 if key == 'slo-object/part1':
@@ -240,7 +250,7 @@ class TestSyncSwift(unittest.TestCase):
                       content_length=1024),
             mock.call(self.aws_bucket, slo_key,
                       mock.ANY,
-                      headers={},
+                      headers={'Content-Type': 'application/slo'},
                       query_string='multipart-manifest=put')
         ])
 
