@@ -228,6 +228,8 @@ def convert_to_s3_headers(swift_headers):
             s3_headers[MANIFEST_HEADER] = urllib.quote(swift_headers[hdr])
         elif hdr.lower() == SLO_HEADER:
             s3_headers[SLO_HEADER] = urllib.quote(swift_headers[hdr])
+        elif hdr.lower() == 'content-type':
+            s3_headers[hdr] = swift_headers[hdr]
 
     return s3_headers
 
