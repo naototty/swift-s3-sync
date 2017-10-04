@@ -1,8 +1,24 @@
-## 0.1.18 (2017-09-28)
+## 0.1.19 (2017-10-04)
 
-Improvements:
+Features:
 
-    - Still work with swift 2.15.1.3
+    - Support restoring static large objects (SLO) from the remote store (which
+      are stored there either as the result of a multipart upload or static
+      large objects). The change requires the SLO manifest to be preserved and
+      is now uploaded to S3 (and S3 clones) in the .manifests namespace (for
+      that account and container).
+
+- Bug fixes:
+
+    - If an object is removed from the remote store, no longer fail with 404 Not
+      Found (and continue to make progress).
+    - Propagate the Content-Type header to the remote store on upload.
+    - Fix up for the Swift 2.15.3 release (which repatriated a function we use).
+
+- Improvements:
+
+    - Small improvement to the testing container, which will no longer install
+      recommended packages.
 
 ## 0.1.18 (2017-09-11)
 
