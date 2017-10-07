@@ -82,7 +82,8 @@ class SyncS3(BaseSync):
                 s3_meta = s3_client.head_object(Bucket=self.aws_bucket,
                                                 Key=s3_key)
         except botocore.exceptions.ClientError as e:
-            if int(e.response['Error']['Code']) == 404:
+            resp_meta = e.response.get('ResponseMetadata', {})
+            if resp_meta.get('HTTPStatusCode', 0) == 404:
                 s3_meta = None
             else:
                 raise e
@@ -142,7 +143,8 @@ class SyncS3(BaseSync):
             try:
                 s3_client.delete_object(Bucket=self.aws_bucket, Key=s3_key)
             except botocore.exceptions.ClientError as e:
-                if int(e.response['Error']['Code']) == 404:
+                resp_meta = e.response.get('ResponseMetadata', {})
+                if resp_meta.get('HTTPStatusCode', 0) == 404:
                     self.logger.warning('%s already removed from %s' % (
                         s3_key, self.aws_bucket))
                 else:
