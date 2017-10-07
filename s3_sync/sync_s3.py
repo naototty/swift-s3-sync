@@ -108,7 +108,7 @@ class SyncS3(BaseSync):
             return
 
         if s3_meta and self.check_etag(metadata['etag'], s3_meta['ETag']):
-            if self.is_object_meta_synced(s3_meta['Metadata'], metadata):
+            if self.is_object_meta_synced(s3_meta, metadata):
                 return
             elif not self.in_glacier(s3_meta):
                 self.update_metadata(metadata, s3_key)
@@ -130,7 +130,8 @@ class SyncS3(BaseSync):
                 Key=s3_key,
                 Body=wrapper_stream,
                 Metadata=wrapper_stream.get_s3_headers(),
-                ContentLength=len(wrapper_stream)
+                ContentLength=len(wrapper_stream),
+                ContentType=metadata['content-type']
             )
             if self._is_amazon() and self.encryption:
                 params['ServerSideEncryption'] = 'AES256'
@@ -290,8 +291,7 @@ class SyncS3(BaseSync):
             if s3_meta:
                 slo_etag = s3_meta['Metadata'].get(SLO_ETAG_FIELD, None)
                 if slo_etag == headers['etag']:
-                    if self.is_object_meta_synced(s3_meta['Metadata'],
-                                                  headers):
+                    if self.is_object_meta_synced(s3_meta, headers):
                         return
                     self.update_metadata(headers, s3_key)
                     return
@@ -302,7 +302,7 @@ class SyncS3(BaseSync):
         expected_etag = get_slo_etag(manifest)
 
         if s3_meta and self.check_etag(expected_etag, s3_meta['ETag']):
-            if self.is_object_meta_synced(s3_meta['Metadata'], headers):
+            if self.is_object_meta_synced(s3_meta, headers):
                 return
             elif not self.in_glacier(s3_meta):
                 self.update_slo_metadata(headers, manifest, s3_key,
@@ -323,7 +323,8 @@ class SyncS3(BaseSync):
                                  Key=s3_key,
                                  Body=slo_wrapper,
                                  Metadata=slo_wrapper.get_s3_headers(),
-                                 ContentLength=len(slo_wrapper))
+                                 ContentLength=len(slo_wrapper),
+                                 ContentType=metadata['content-type'])
 
     def _validate_slo_manifest(self, manifest):
         parts = len(manifest)
@@ -362,7 +363,8 @@ class SyncS3(BaseSync):
             params = dict(
                 Bucket=self.aws_bucket,
                 Key=s3_key,
-                Metadata=convert_to_s3_headers(object_meta)
+                Metadata=convert_to_s3_headers(object_meta),
+                ContentType=object_meta['content-type']
             )
             if self._is_amazon() and self.encryption:
                 params['ServerSideEncryption'] = 'AES256'
@@ -417,7 +419,8 @@ class SyncS3(BaseSync):
             params = dict(
                 Bucket=self.aws_bucket,
                 Key=self.get_manifest_name(s3_key),
-                Body=json.dumps(manifest))
+                Body=json.dumps(manifest),
+                ContentLength=len(json.dumps(manifest)))
             if self._is_amazon() and self.encryption:
                 params['ServerSideEncryption'] = 'AES256'
             s3_client.put_object(**params)
@@ -515,7 +518,8 @@ class SyncS3(BaseSync):
             params = dict(
                 Bucket=self.aws_bucket,
                 Key=s3_key,
-                Metadata=convert_to_s3_headers(swift_meta)
+                Metadata=convert_to_s3_headers(swift_meta),
+                ContentType=swift_meta['content-type']
             )
             if self._is_amazon() and self.encryption:
                 params['ServerSideEncryption'] = 'AES256'
@@ -570,7 +574,8 @@ class SyncS3(BaseSync):
                     MetadataDirective='REPLACE',
                     Metadata=meta,
                     Bucket=self.aws_bucket,
-                    Key=s3_key
+                    Key=s3_key,
+                    ContentType=swift_meta['content-type']
                 )
                 if self._is_amazon() and self.encryption:
                     params['ServerSideEncryption'] = 'AES256'
@@ -592,16 +597,21 @@ class SyncS3(BaseSync):
         swift_keys = set([key.lower()[len(SWIFT_USER_META_PREFIX):]
                           for key in swift_meta
                           if key.lower().startswith(SWIFT_USER_META_PREFIX)])
-        s3_keys = set([key.lower() for key in s3_meta.keys()])
+        s3_keys = set([key.lower()
+                       for key in s3_meta['Metadata'].keys()])
         if SLO_HEADER in swift_meta and SLO_ETAG_FIELD in s3_keys:
-            # We include the SLO ETag for Google SLO uploads for content
-            # verification
-            s3_keys.remove(SLO_ETAG_FIELD)
+                # We include the SLO ETag for Google SLO uploads for content
+                # verification
+                s3_keys.remove(SLO_ETAG_FIELD)
         if swift_keys != s3_keys:
             return False
         for key in s3_keys:
+            if key == SLO_HEADER:
+                continue
             swift_value = urllib.quote(
                 swift_meta[SWIFT_USER_META_PREFIX + key])
-            if s3_meta[key] != swift_value:
+            if s3_meta['Metadata'][key] != swift_value:
                 return False
+        if s3_meta['ContentType'] != swift_meta['content-type']:
+            return False
         return True

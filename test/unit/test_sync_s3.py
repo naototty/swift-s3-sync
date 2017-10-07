@@ -48,7 +48,8 @@ class TestSyncS3(unittest.TestCase):
         self.sync_s3.check_slo = mock.Mock()
         self.sync_s3.check_slo.return_value = False
         mock_ic = mock.Mock()
-        mock_ic.get_object_metadata.return_value = {}
+        mock_ic.get_object_metadata.return_value = {
+            'content-type': 'test/blob'}
 
         self.sync_s3.upload_object(key, storage_policy, mock_ic)
 
@@ -63,7 +64,8 @@ class TestSyncS3(unittest.TestCase):
             Body=wrapper,
             Metadata={},
             ContentLength=0,
-            ServerSideEncryption='AES256')
+            ServerSideEncryption='AES256',
+            ContentType='test/blob')
 
     @mock.patch('s3_sync.sync_s3.FileWrapper')
     def test_upload_object_without_encryption(self, mock_file_wrapper):
@@ -83,7 +85,8 @@ class TestSyncS3(unittest.TestCase):
         self.sync_s3.check_slo = mock.Mock()
         self.sync_s3.check_slo.return_value = False
         mock_ic = mock.Mock()
-        mock_ic.get_object_metadata.return_value = {}
+        mock_ic.get_object_metadata.return_value = {
+            'content-type': 'test/blob'}
 
         self.sync_s3.upload_object(key, storage_policy, mock_ic)
 
@@ -97,7 +100,8 @@ class TestSyncS3(unittest.TestCase):
             Key=self.sync_s3.get_s3_name(key),
             Body=wrapper,
             Metadata={},
-            ContentLength=0)
+            ContentLength=0,
+            ContentType='test/blob')
 
     @mock.patch('s3_sync.sync_s3.FileWrapper')
     def test_google_upload_encryption(self, mock_file_wrapper):
@@ -117,7 +121,8 @@ class TestSyncS3(unittest.TestCase):
         self.sync_s3.check_slo = mock.Mock()
         self.sync_s3.check_slo.return_value = False
         mock_ic = mock.Mock()
-        mock_ic.get_object_metadata.return_value = {}
+        mock_ic.get_object_metadata.return_value = {
+            'content-type': 'test/blob'}
 
         self.sync_s3.upload_object(key, storage_policy, mock_ic)
 
@@ -131,7 +136,8 @@ class TestSyncS3(unittest.TestCase):
             Key=self.sync_s3.get_s3_name(key),
             Body=wrapper,
             Metadata={},
-            ContentLength=0)
+            ContentLength=0,
+            ContentType='test/blob')
 
     @mock.patch('s3_sync.sync_s3.boto3.session.Session')
     def test_encryption_option(self, mock_session):
@@ -159,7 +165,8 @@ class TestSyncS3(unittest.TestCase):
         self.sync_s3.check_slo = mock.Mock()
         self.sync_s3.check_slo.return_value = False
         mock_ic = mock.Mock()
-        mock_ic.get_object_metadata.return_value = {}
+        mock_ic.get_object_metadata.return_value = {
+            'content-type': 'test/blob'}
 
         self.sync_s3.upload_object(key, storage_policy, mock_ic)
 
@@ -174,6 +181,7 @@ class TestSyncS3(unittest.TestCase):
             Body=wrapper,
             Metadata={},
             ContentLength=0,
+            ContentType='test/blob',
             ServerSideEncryption='AES256')
 
     def test_upload_changed_meta(self):
@@ -182,7 +190,8 @@ class TestSyncS3(unittest.TestCase):
         etag = '1234'
         swift_object_meta = {'x-object-meta-new': 'new',
                              'x-object-meta-old': 'updated',
-                             'etag': etag}
+                             'etag': etag,
+                             'content-type': 'test/blob'}
         mock_ic = mock.Mock()
         mock_ic.get_object_metadata.return_value = swift_object_meta
         self.mock_boto3_client.head_object.return_value = {
@@ -199,7 +208,8 @@ class TestSyncS3(unittest.TestCase):
             Bucket=self.aws_bucket,
             Key=self.sync_s3.get_s3_name(key),
             Metadata={'new': 'new', 'old': 'updated'},
-            ServerSideEncryption='AES256')
+            ServerSideEncryption='AES256',
+            ContentType='test/blob')
 
     def test_upload_changed_meta_no_encryption(self):
         key = 'key'
@@ -207,7 +217,8 @@ class TestSyncS3(unittest.TestCase):
         etag = '1234'
         swift_object_meta = {'x-object-meta-new': 'new',
                              'x-object-meta-old': 'updated',
-                             'etag': etag}
+                             'etag': etag,
+                             'content-type': 'test/blob'}
         mock_ic = mock.Mock()
         mock_ic.get_object_metadata.return_value = swift_object_meta
         self.mock_boto3_client.head_object.return_value = {
@@ -224,7 +235,8 @@ class TestSyncS3(unittest.TestCase):
             MetadataDirective='REPLACE',
             Bucket=self.aws_bucket,
             Key=self.sync_s3.get_s3_name(key),
-            Metadata={'new': 'new', 'old': 'updated'})
+            Metadata={'new': 'new', 'old': 'updated'},
+            ContentType='test/blob')
 
     def test_upload_changed_meta_google_encryption(self):
         key = 'key'
@@ -232,7 +244,8 @@ class TestSyncS3(unittest.TestCase):
         etag = '1234'
         swift_object_meta = {'x-object-meta-new': 'new',
                              'x-object-meta-old': 'updated',
-                             'etag': etag}
+                             'etag': etag,
+                             'content-type': 'test/blob'}
         mock_ic = mock.Mock()
         mock_ic.get_object_metadata.return_value = swift_object_meta
         self.mock_boto3_client.head_object.return_value = {
@@ -249,7 +262,8 @@ class TestSyncS3(unittest.TestCase):
             MetadataDirective='REPLACE',
             Bucket=self.aws_bucket,
             Key=self.sync_s3.get_s3_name(key),
-            Metadata={'new': 'new', 'old': 'updated'})
+            Metadata={'new': 'new', 'old': 'updated'},
+            ContentType='test/blob')
 
     @mock.patch('s3_sync.sync_s3.FileWrapper')
     def test_upload_changed_meta_glacier(self, mock_file_wrapper):
@@ -260,13 +274,15 @@ class TestSyncS3(unittest.TestCase):
         etag = '1234'
         swift_object_meta = {'x-object-meta-new': 'new',
                              'x-object-meta-old': 'updated',
-                             'etag': etag}
+                             'etag': etag,
+                             'content-type': 'test/blob'}
         mock_ic = mock.Mock()
         mock_ic.get_object_metadata.return_value = swift_object_meta
         self.mock_boto3_client.head_object.return_value = {
             'Metadata': {'old': 'old'},
             'ETag': '"%s"' % etag,
-            'StorageClass': 'GLACIER'
+            'StorageClass': 'GLACIER',
+            'ContentType': 'test/blob'
         }
 
         wrapper = mock.Mock()
@@ -287,7 +303,8 @@ class TestSyncS3(unittest.TestCase):
             Metadata={'new': 'new', 'old': 'updated'},
             Body=wrapper,
             ContentLength=0,
-            ServerSideEncryption='AES256')
+            ServerSideEncryption='AES256',
+            ContentType='test/blob')
 
     @mock.patch('s3_sync.sync_s3.FileWrapper')
     def test_upload_replace_object(self, mock_file_wrapper):
@@ -295,12 +312,14 @@ class TestSyncS3(unittest.TestCase):
         storage_policy = 42
         swift_object_meta = {'x-object-meta-new': 'new',
                              'x-object-meta-old': 'updated',
-                             'etag': 2}
+                             'etag': 2,
+                             'content-type': 'test/blob'}
         mock_ic = mock.Mock()
         mock_ic.get_object_metadata.return_value = swift_object_meta
         self.mock_boto3_client.head_object.return_value = {
             'Metadata': {'old': 'old'},
-            'ETag': 1
+            'ETag': 1,
+            'ContentType': 'application/stream'
         }
 
         wrapper = mock.Mock()
@@ -317,19 +336,22 @@ class TestSyncS3(unittest.TestCase):
             Metadata={'new': 'new', 'old': 'updated'},
             Body=wrapper,
             ContentLength=42,
-            ServerSideEncryption='AES256')
+            ServerSideEncryption='AES256',
+            ContentType='test/blob')
 
     def test_upload_same_object(self):
         key = 'key'
         storage_policy = 42
         etag = '1234'
         swift_object_meta = {'x-object-meta-foo': 'foo',
-                             'etag': etag}
+                             'etag': etag,
+                             'content-type': 'test/blob'}
         mock_ic = mock.Mock()
         mock_ic.get_object_metadata.return_value = swift_object_meta
         self.mock_boto3_client.head_object.return_value = {
             'Metadata': {'foo': 'foo'},
-            'ETag': '"%s"' % etag
+            'ETag': '"%s"' % etag,
+            'ContentType': 'test/blob'
         }
 
         self.sync_s3.upload_object(key, storage_policy, mock_ic)
@@ -572,7 +594,8 @@ class TestSyncS3(unittest.TestCase):
 
         def get_object(account, container, key, headers):
             if key == slo_key:
-                return (200, {'etag': 'swift-slo-etag'},
+                return (200, {'etag': 'swift-slo-etag',
+                              'content-type': 'test/blob'},
                         FakeStream(content=json.dumps(manifest)))
             raise RuntimeError('Unknown key!')
 
@@ -616,19 +639,22 @@ class TestSyncS3(unittest.TestCase):
                      'bytes': 200}]
 
         self.mock_boto3_client.head_object.return_value = {
-            'Metadata': {utils.SLO_ETAG_FIELD: 'swift-slo-etag'}}
+            'Metadata': {utils.SLO_ETAG_FIELD: 'swift-slo-etag'},
+            'ContentType': 'test/blob'}
 
         def get_metadata(account, container, key, headers):
             if key == slo_key:
                 return {utils.SLO_HEADER: 'True',
-                        'x-object-meta-foo': 'bar'}
+                        'x-object-meta-foo': 'bar',
+                        'content-type': 'test/blob'}
             raise RuntimeError('Unknown key')
 
         def get_object(account, container, key, headers):
             if key == slo_key:
                 return (200, {'etag': 'swift-slo-etag',
                               'x-object-meta-foo': 'bar',
-                              utils.SLO_HEADER: 'True'},
+                              utils.SLO_HEADER: 'True',
+                              'content-type': 'test/blob'},
                         FakeStream(content=json.dumps(manifest)))
             raise RuntimeError('Unknown key!')
 
@@ -646,12 +672,13 @@ class TestSyncS3(unittest.TestCase):
             Key=s3_key,
             Metadata={utils.SLO_ETAG_FIELD: 'swift-slo-etag',
                       'foo': 'bar',
-                      utils.SLO_HEADER: 'True'})
+                      utils.SLO_HEADER: 'True'},
+            ContentType='test/blob')
 
     @mock.patch('s3_sync.sync_s3.FileWrapper')
     def test_internal_slo_upload(self, mock_file_wrapper):
         slo_key = 'slo-object'
-        slo_meta = {'x-object-meta-foo': 'bar'}
+        slo_meta = {'x-object-meta-foo': 'bar', 'content-type': 'test/blob'}
         s3_key = self.sync_s3.get_s3_name(slo_key)
         storage_policy = 42
         swift_req_headers = {'X-Backend-Storage-Policy-Index': storage_policy,
@@ -686,7 +713,8 @@ class TestSyncS3(unittest.TestCase):
             Bucket=self.aws_bucket,
             Key=self.sync_s3.get_s3_name(slo_key),
             Metadata={'foo': 'bar'},
-            ServerSideEncryption='AES256')
+            ServerSideEncryption='AES256',
+            ContentType='test/blob')
         self.mock_boto3_client.upload_part.assert_has_calls([
             mock.call(Bucket=self.aws_bucket,
                       Key=self.sync_s3.get_s3_name(slo_key),
@@ -715,7 +743,7 @@ class TestSyncS3(unittest.TestCase):
     @mock.patch('s3_sync.sync_s3.FileWrapper')
     def test_internal_slo_upload_encryption(self, mock_file_wrapper):
         slo_key = 'slo-object'
-        slo_meta = {'x-object-meta-foo': 'bar'}
+        slo_meta = {'x-object-meta-foo': 'bar', 'content-type': 'test/blob'}
         s3_key = self.sync_s3.get_s3_name(slo_key)
         storage_policy = 42
         swift_req_headers = {'X-Backend-Storage-Policy-Index': storage_policy,
@@ -746,7 +774,8 @@ class TestSyncS3(unittest.TestCase):
             Bucket=self.aws_bucket,
             Key=self.sync_s3.get_s3_name(slo_key),
             Metadata={'foo': 'bar'},
-            ServerSideEncryption='AES256')
+            ServerSideEncryption='AES256',
+            ContentType='test/blob')
 
     @mock.patch('s3_sync.sync_s3.get_slo_etag')
     def test_slo_meta_changed(self, mock_get_slo_etag):
@@ -867,7 +896,8 @@ class TestSyncS3(unittest.TestCase):
         slo_meta = {
             utils.SLO_HEADER: 'True',
             'x-object-meta-new-key': 'foo',
-            'x-object-meta-other-key': 'bar'
+            'x-object-meta-other-key': 'bar',
+            'content-type': 'test/blob'
         }
         manifest = [
             {'name': '/segments/slo-object/part1',
@@ -904,7 +934,8 @@ class TestSyncS3(unittest.TestCase):
             Bucket=self.aws_bucket, Key=s3_key,
             Metadata={'new-key': 'foo', 'other-key': 'bar',
                       utils.SLO_HEADER: 'True'},
-            ServerSideEncryption='AES256')
+            ServerSideEncryption='AES256',
+            ContentType='test/blob')
         self.mock_boto3_client.upload_part_copy.assert_has_calls([
             mock.call(Bucket=self.aws_bucket, Key=s3_key, PartNumber=1,
                       CopySource={'Bucket': self.aws_bucket, 'Key': s3_key},
@@ -938,7 +969,8 @@ class TestSyncS3(unittest.TestCase):
         slo_meta = {
             utils.SLO_HEADER: 'True',
             'x-object-meta-new-key': 'foo',
-            'x-object-meta-other-key': 'bar'
+            'x-object-meta-other-key': 'bar',
+            'content-type': 'test/blob'
         }
         manifest = [
             {'name': '/segments/slo-object/part1',
@@ -968,7 +1000,8 @@ class TestSyncS3(unittest.TestCase):
             Bucket=self.aws_bucket, Key=s3_key,
             Metadata={'new-key': 'foo', 'other-key': 'bar',
                       utils.SLO_HEADER: 'True'},
-            ServerSideEncryption='AES256')
+            ServerSideEncryption='AES256',
+            ContentType='test/blob')
 
     def test_validate_manifest_too_many_parts(self):
         segments = [{'name': '/segment/%d' % i} for i in xrange(10001)]
@@ -1014,30 +1047,46 @@ class TestSyncS3(unittest.TestCase):
         # The structure for each entry is: swift meta, s3 meta, whether they
         # should be equal.
         test_metas = [({'x-object-meta-upper': 'UPPER',
-                        'x-object-meta-lower': 'lower'},
+                        'x-object-meta-lower': 'lower',
+                        'content-type': 'test/blob'},
                        {'upper': 'UPPER',
                         'lower': 'lower'},
                        True),
                       ({'x-object-meta-foo': 'foo',
-                        'x-object-meta-bar': 'bar'},
+                        'x-object-meta-bar': 'bar',
+                        'content-type': 'test/blob'},
                        {'foo': 'not foo',
                         'bar': 'bar'},
                        False),
                       ({'x-object-meta-unicode': '👍',
-                        'x-object-meta-date': 'Wed, April 30 10:32:21 UTC'},
+                        'x-object-meta-date': 'Wed, April 30 10:32:21 UTC',
+                        'content-type': 'test/blob'},
                        {'unicode': '%F0%9F%91%8D',
                         'date': 'Wed%2C%20April%2030%2010%3A32%3A21%20UTC'},
                        True),
                       ({'x-object-meta-foo': 'foo',
                         'x-object-meta-bar': 'bar',
-                        'x-static-large-object': 'True'},
+                        'x-static-large-object': 'True',
+                        'content-type': 'test/blob'},
                        {'swift-slo-etag': 'deadbeef',
+                        'x-static-large-object': 'True',
                         'foo': 'foo',
                         'bar': 'bar'},
-                       True)]
+                       True),
+                      ({'x-static-large-object': 'True',
+                        'content-type': 'test/blob'},
+                       {'x-static-large-object': 'True'},
+                       True),
+                      # mismatch in content type should cause the object
+                      # metadata to be update
+                      ({'content-type': 'test/swift'},
+                       {},
+                       False)]
         for swift_meta, s3_meta, expected in test_metas:
-            self.assertEqual(expected,
-                             SyncS3.is_object_meta_synced(s3_meta, swift_meta))
+            self.assertEqual(
+                expected, SyncS3.is_object_meta_synced(
+                    {'Metadata': s3_meta,
+                     'ContentType': 'test/blob'}, swift_meta))
 
     def test_shunt_object(self):
         key = 'key'
