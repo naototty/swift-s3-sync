@@ -19,7 +19,6 @@ class TestUtilsFunctions(unittest.TestCase):
                          key, value in input_hdrs.items() if
                          key.lower().startswith(utils.SWIFT_USER_META_PREFIX)])
         expected[utils.MANIFEST_HEADER] = input_hdrs['X-Object-Manifest']
-        expected['Content-Type'] = input_hdrs['Content-Type']
         self.assertEqual(set(expected.keys()), set(out.keys()))
         for key in out.keys():
             self.assertEqual(expected[key], out[key])
