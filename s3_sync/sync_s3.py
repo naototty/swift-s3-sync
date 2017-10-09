@@ -598,16 +598,18 @@ class SyncS3(BaseSync):
                           for key in swift_meta
                           if key.lower().startswith(SWIFT_USER_META_PREFIX)])
         s3_keys = set([key.lower()
-                       for key in s3_meta['Metadata'].keys()])
-        if SLO_HEADER in swift_meta and SLO_ETAG_FIELD in s3_keys:
+                       for key in s3_meta['Metadata'].keys()
+                       if key != SLO_HEADER])
+        if SLO_HEADER in swift_meta:
+            if swift_meta[SLO_HEADER] != s3_meta['Metadata'].get(SLO_HEADER):
+                return False
+            if SLO_ETAG_FIELD in s3_keys:
                 # We include the SLO ETag for Google SLO uploads for content
                 # verification
                 s3_keys.remove(SLO_ETAG_FIELD)
         if swift_keys != s3_keys:
             return False
         for key in s3_keys:
-            if key == SLO_HEADER:
-                continue
             swift_value = urllib.quote(
                 swift_meta[SWIFT_USER_META_PREFIX + key])
             if s3_meta['Metadata'][key] != swift_value:
