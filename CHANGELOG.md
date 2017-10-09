@@ -1,3 +1,15 @@
+## 0.1.20 (2017-10-09)
+
+Bug fixes:
+
+    - Update the integration test container dependencies (botocore and
+      container-crawler).
+    - Improved error handling, by relying on ResponseMetadata:HTTPStatusCode in
+      boto errors (as opposed to Error:Code, which may not always be present).
+    - Make Content-Type propagation work correctly. The prior attempt included
+      it as a user metadata header, which is not what we should be doing.
+    - Fix the SLO upload against Google to include the SLO manifest.
+
 ## 0.1.19 (2017-10-04)
 
 Features:
@@ -8,14 +20,14 @@ Features:
       is now uploaded to S3 (and S3 clones) in the .manifests namespace (for
       that account and container).
 
-- Bug fixes:
+Bug fixes:
 
     - If an object is removed from the remote store, no longer fail with 404 Not
       Found (and continue to make progress).
     - Propagate the Content-Type header to the remote store on upload.
     - Fix up for the Swift 2.15.3 release (which repatriated a function we use).
 
-- Improvements:
+Improvements:
 
     - Small improvement to the testing container, which will no longer install
       recommended packages.
