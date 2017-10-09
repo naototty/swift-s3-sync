@@ -297,20 +297,32 @@ class SyncS3(BaseSync):
                     return
             self._upload_google_slo(manifest, headers, s3_key, swift_req_hdrs,
                                     internal_client)
-            return
+        else:
+            expected_etag = get_slo_etag(manifest)
 
-        expected_etag = get_slo_etag(manifest)
+            if s3_meta and self.check_etag(expected_etag, s3_meta['ETag']):
+                if self.is_object_meta_synced(s3_meta, headers):
+                    return
+                elif not self.in_glacier(s3_meta):
+                    self.update_slo_metadata(headers, manifest, s3_key,
+                                             swift_req_hdrs, internal_client)
+                    return
+            self._upload_slo(manifest, headers, s3_key, swift_req_hdrs,
+                             internal_client)
 
-        if s3_meta and self.check_etag(expected_etag, s3_meta['ETag']):
-            if self.is_object_meta_synced(s3_meta, headers):
-                return
-            elif not self.in_glacier(s3_meta):
-                self.update_slo_metadata(headers, manifest, s3_key,
-                                         swift_req_hdrs, internal_client)
-                return
-
-        self._upload_slo(manifest, headers, s3_key, swift_req_hdrs,
-                         internal_client)
+        with self.client_pool.get_client() as boto_client:
+            # We upload the manifest so that we can restore the object in
+            # Swift and have it match the S3 multipart ETag. To avoid name
+            # length issues, we hash the object name and append the suffix
+            params = dict(
+                Bucket=self.aws_bucket,
+                Key=self.get_manifest_name(s3_key),
+                Body=json.dumps(manifest),
+                ContentLength=len(json.dumps(manifest)),
+                ContentType='application/json')
+            if self._is_amazon() and self.encryption:
+                params['ServerSideEncryption'] = 'AES256'
+            boto_client.client.put_object(**params)
 
     def _upload_google_slo(self, manifest, metadata, s3_key, req_hdrs,
                            internal_client):
@@ -412,18 +424,6 @@ class SyncS3(BaseSync):
             except:
                 self._abort_upload(s3_key, upload_id, client=s3_client)
                 raise
-
-            # We upload the manifest so that we can restore the object in
-            # Swift and have it match the S3 multipart ETag. To avoid name
-            # length issues, we hash the object name and append the suffix
-            params = dict(
-                Bucket=self.aws_bucket,
-                Key=self.get_manifest_name(s3_key),
-                Body=json.dumps(manifest),
-                ContentLength=len(json.dumps(manifest)))
-            if self._is_amazon() and self.encryption:
-                params['ServerSideEncryption'] = 'AES256'
-            s3_client.put_object(**params)
 
     def _abort_upload(self, s3_key, upload_id, client=None):
         if not client:

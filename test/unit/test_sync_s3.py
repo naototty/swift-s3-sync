@@ -609,15 +609,21 @@ class TestSyncS3(unittest.TestCase):
             Bucket=self.aws_bucket,
             Key=self.sync_s3.get_s3_name(slo_key))
 
-        args, kwargs = self.mock_boto3_client.put_object.call_args
+        args, kwargs = self.mock_boto3_client.put_object.call_args_list[0]
         self.assertEqual(self.aws_bucket, kwargs['Bucket'])
-        self.assertEqual(
-            self.sync_s3.get_s3_name(slo_key), kwargs['Key'])
+        s3_name = self.sync_s3.get_s3_name(slo_key)
+        self.assertEqual(s3_name, kwargs['Key'])
         self.assertEqual(5 * SyncS3.MB + 200, kwargs['ContentLength'])
         self.assertEqual(
             {utils.SLO_ETAG_FIELD: 'swift-slo-etag'},
             kwargs['Metadata'])
         self.assertEqual(utils.SLOFileWrapper, type(kwargs['Body']))
+
+        args, kwargs = self.mock_boto3_client.put_object.call_args_list[1]
+        self.assertEqual(self.aws_bucket, kwargs['Bucket'])
+        self.assertEqual(
+            self.sync_s3.get_manifest_name(s3_name), kwargs['Key'])
+        self.assertEqual(manifest, json.loads(kwargs['Body']))
 
         mock_ic.get_object_metadata.assert_called_once_with(
             'account', 'container', slo_key, headers=swift_req_headers)
