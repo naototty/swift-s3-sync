@@ -621,3 +621,29 @@ class TestShunt(unittest.TestCase):
             mock.call(u'unicod\xe9'.encode('utf-8'), 10000, '', '')])
         names = body_iter.split('\n')
         self.assertEqual(['abc', u'unicod\xe9'], names)
+
+    @mock.patch('s3_sync.sync_s3.SyncS3.shunt_post')
+    @mock.patch('s3_sync.sync_swift.SyncSwift.shunt_post')
+    def test_shunt_post(self, swift_shunt_post, s3_shunt_post):
+        tests = [
+            u'/v1/AUTH_a/sw\u00e9ft/o',
+            '/v1/AUTH_a/s3/o',
+            '/v1/AUTH_b/c1/o',
+            '/v1/AUTH_b/c2/o']
+
+        for path in tests:
+            req = swob.Request.blank(
+                path,
+                environ={'__test__.status': '404 Not Found',
+                         'swift.trans_id': 'local trans id'},
+                method='POST')
+            swift_shunt_post.return_value = (202, [], [''])
+            s3_shunt_post.return_value = (202, [], [''])
+
+            status, headers, body_iter = req.call_application(self.app)
+            self.assertEqual('202 Accepted', status)
+            self.assertEqual([], headers)
+            self.assertEqual([''], body_iter)
+
+            swift_shunt_post.reset_mock()
+            s3_shunt_post.reset_mock()

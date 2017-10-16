@@ -204,6 +204,61 @@ class SyncS3(BaseSync):
                     headers.items(),
                     body_iter)
 
+    def shunt_post(self, req, swift_key):
+        """Update an object's metadata in the remote store.
+
+        This requires a HEAD request to check if it is a result of a multipart
+        upload (MPU). If the object was created through an MPU, we have to
+        retrieve the manifest and issue a new multipart request with copied
+        parts (as the metadata would fail if the object is greater than 5GB and
+        we would lose the MPU information, subsequently possibly not treating
+        the object as an SLO when placing it back into Swift. We also have to
+        preserve the system tags, such as the SLO ETag and
+        X-Static-Large-Object (as they are set and maintained by us).
+
+        :returns: (status, headers, body_iter) tuple, where body_iter is always
+        [''], since there is no content associated with the response in Swift.
+        """
+        s3_key = self.get_s3_name(swift_key)
+        try:
+            with self.client_pool.get_client() as boto_client:
+                s3_client = boto_client.client
+                s3_meta = s3_client.head_object(Bucket=self.aws_bucket,
+                                                Key=s3_key)
+            # If Content-Type is not set (and it wouldn't be on POST requests),
+            # we preserve the existing Content-Type during the update
+            # (otherwise PUT will overwrite it with application/octet-stream).
+            if not req.headers['content-type']:
+                req.headers['content-type'] = s3_meta['ContentType']
+            # SLO cannot be set by the client on POST, so we have to check the
+            # existing metadata.
+            is_slo = SLO_HEADER in s3_meta['Metadata']
+            if is_slo:
+                req.headers[SLO_HEADER] = s3_meta['Metadata'][SLO_HEADER]
+            if SLO_ETAG_FIELD in s3_meta['Metadata']:
+                # Special case for Google, where we have to store the SLO ETag,
+                # as we convert SLOs into a single object, but need to keep
+                # track of changes to the manifest.
+                req.headers['etag'] = s3_meta['Metadata'][SLO_ETAG_FIELD]
+
+            if is_slo and not self._google():
+                # Google is special -- we do not use their "compose" API to
+                # upload objects, as they allow single objects to be up to 5TB.
+                manifest = self.get_manifest(swift_key)
+                if not manifest:
+                    return 404, [], ['object not found']
+                self.update_slo_metadata(req.headers, manifest, s3_key)
+            else:
+                self.update_metadata(req.headers, s3_key)
+            return 202, [], ['']
+        except botocore.exceptions.ClientError as e:
+            return (e.response['ResponseMetadata']['HTTPStatusCode'],
+                    e.response['ResponseMetadata']['HTTPHeaders'].items(),
+                    e.response['Error']['Message'])
+        except Exception:
+            self.logger.exception('Error contacting remote s3 cluster')
+            return 502, [], ['']
+
     def list_objects(self, marker, limit, prefix, delimiter):
         if limit > 1000:
             limit = 1000
@@ -304,8 +359,7 @@ class SyncS3(BaseSync):
                 if self.is_object_meta_synced(s3_meta, headers):
                     return
                 elif not self.in_glacier(s3_meta):
-                    self.update_slo_metadata(headers, manifest, s3_key,
-                                             swift_req_hdrs, internal_client)
+                    self.update_slo_metadata(headers, manifest, s3_key)
                     return
             self._upload_slo(manifest, headers, s3_key, swift_req_hdrs,
                              internal_client)
@@ -507,8 +561,7 @@ class SyncS3(BaseSync):
                     'Failed to fetch the manifest: %s' % e)
                 return None
 
-    def update_slo_metadata(self, swift_meta, manifest, s3_key, req_headers,
-                            internal_client):
+    def update_slo_metadata(self, swift_meta, manifest, s3_key):
         # For large objects, we should use the multipart copy, which means
         # creating a new multipart upload, with copy-parts
         # NOTE: if we ever stich MPU objects, we need to replicate the
@@ -529,10 +582,7 @@ class SyncS3(BaseSync):
             # ETags match
             offset = 0
             for part_number, segment in enumerate(manifest):
-                container, obj = segment['name'].split('/', 2)[1:]
-                segment_meta = internal_client.get_object_metadata(
-                    self.account, container, obj, headers=req_headers)
-                length = int(segment_meta['content-length'])
+                length = int(segment['bytes'])
                 resp = s3_client.upload_part_copy(
                     Bucket=self.aws_bucket,
                     CopySource={'Bucket': self.aws_bucket, 'Key': s3_key},

@@ -522,3 +522,181 @@ class TestCloudSync(unittest.TestCase):
         clear_swift_container(self.swift_dst, 'segments')
         clear_swift_container(self.swift_src, mapping['container'])
         clear_swift_container(self.swift_src, 'segments')
+
+    def test_swift_post_archive(self):
+        content = 'A' * 2048
+        key = 'test_archive_post'
+        mapping = self.swift_archive_mapping()
+        self.local_swift('put_object', mapping['container'], key,
+                         content,
+                         headers={'x-object-meta-foo': 'foo',
+                                  'content-type': 'swift/test-slo'})
+
+        def check_upload():
+            try:
+                return self.remote_swift(
+                    'head_object', mapping['aws_bucket'], key)
+            except:
+                return False
+        wait_for_condition(5, check_upload)
+
+        resp = self.local_swift('post_object', mapping['container'], key,
+                                headers={'x-object-meta-foo': 'bar'})
+        def check_meta():
+            hdrs = self.remote_swift('head_object', mapping['aws_bucket'], key)
+            if hdrs['x-object-meta-foo'] == 'bar':
+                return hdrs
+            else:
+                return False
+
+        hdrs = wait_for_condition(5, check_meta)
+
+        self.assertEqual(hdrs['x-object-meta-foo'], 'bar')
+        self.assertEqual(hdrs['content-type'], 'swift/test-slo')
+
+    def test_swift_post_archive_slo(self):
+        content = 'A' * 2048
+        key = 'test_archive_post_slo'
+        mapping = self.swift_archive_mapping()
+        manifest = [
+            {'size_bytes': 1024, 'path': '/segments/part1'},
+            {'size_bytes': 1024, 'path': '/segments/part2'}]
+        self.local_swift('put_container', 'segments')
+        self.local_swift('put_object', 'segments', 'part1', content[:1024])
+        self.local_swift('put_object', 'segments', 'part2', content[1024:])
+        self.local_swift('put_object', mapping['container'], key,
+                          json.dumps(manifest),
+                          query_string='multipart-manifest=put',
+                          headers={'x-object-meta-foo': 'foo',
+                                   'content-type': 'swift/test-slo'})
+
+        # Create the remote container, as the cloud-sync code will retry
+        # creating it on a subsequent iteration
+        self.remote_swift('put_container', mapping['aws_bucket'] + '_segments')
+
+        # wait for the SLO to propagate
+        def check_upload():
+            try:
+                remote_hdrs = self.remote_swift(
+                    'head_object', mapping['aws_bucket'], key)
+                local_hdrs = self.local_swift(
+                    'head_object', mapping['container'], key)
+                if not any(map(lambda k: k.startswith('remote-'), local_hdrs)):
+                    return False
+                return remote_hdrs
+            except:
+                return False
+        wait_for_condition(5, check_upload)
+
+        resp = self.local_swift('post_object', mapping['container'], key,
+                                headers={'x-object-meta-foo': 'bar'})
+        def check_meta():
+            hdrs = self.remote_swift('head_object', mapping['aws_bucket'], key)
+            if hdrs['x-object-meta-foo'] == 'bar':
+                return hdrs
+            else:
+                return False
+        hdrs = wait_for_condition(5, check_meta)
+
+        self.assertEqual(hdrs['x-object-meta-foo'], 'bar')
+        self.assertEqual(hdrs['content-type'], 'swift/test-slo')
+
+        clear_swift_container(self.swift_dst, mapping['aws_bucket'])
+        clear_swift_container(self.swift_dst,
+                              mapping['aws_bucket'] + '_segments')
+        clear_swift_container(self.swift_src, mapping['container'])
+        clear_swift_container(self.swift_src, 'segments')
+
+    def test_s3_post_archive(self):
+        content = 's3 archive and get'
+        key = 'test_s3_archive'
+        s3_mapping = self.s3_archive_mapping()
+        s3_key = s3_key_name(s3_mapping, key)
+        self.local_swift(
+            'put_object', s3_mapping['container'], key, content,
+            headers={'content-type': 'swift/test-archive',
+                     'x-object-meta-foo':
+                     'foo'})
+
+        # wait for the object to propagate
+        def check_upload():
+            try:
+                headers = self.s3(
+                    'head_object', Bucket=s3_mapping['aws_bucket'], Key=s3_key)
+                swift_hdrs = self.local_swift(
+                    'head_object', s3_mapping['container'], key)
+                if 'server' not in swift_hdrs:
+                    return False
+                return headers
+            except:
+                return False
+        wait_for_condition(5, check_upload)
+
+        self.local_swift(
+            'post_object', s3_mapping['container'], key,
+            headers={'x-object-meta-bar': 'bar', 'x-object-meta-foo': 'qux'})
+
+        hdrs = self.local_swift('head_object', s3_mapping['container'], key)
+        self.assertEqual('swift/test-archive', hdrs['content-type'])
+        self.assertEqual('qux', hdrs['x-object-meta-foo'])
+        self.assertEqual('bar', hdrs['x-object-meta-bar'])
+
+        clear_s3_bucket(self.s3_client, s3_mapping['aws_bucket'])
+        clear_swift_container(self.swift_src, s3_mapping['container'])
+
+    def test_s3_post_archive_slo(self):
+        content = 'A' * (10 * 1024 * 1024)
+        key = 'test_s3_archive'
+        s3_mapping = self.s3_archive_mapping()
+        s3_key = s3_key_name(s3_mapping, key)
+        manifest = [{'size_bytes': 5 * 1024 * 1024,
+                     'path': '/segments/part%d' % i}
+                    for i in range(1, 3)]
+        for i in range(2):
+            self.local_swift(
+                'put_object', 'segments', 'part%d' % (i + 1),
+                content[i * 5 * 1024 * 1024:(i + 1) * 5 * 1024 * 1024])
+        self.local_swift(
+            'put_object', s3_mapping['container'], key, json.dumps(manifest),
+            query_string='multipart-manifest=put',
+            headers={'content-type': 'swift/test-archive',
+                     'x-object-meta-foo':
+                     'foo'})
+
+        # wait for the object to propagate
+        def check_upload():
+            try:
+                headers = self.s3(
+                    'head_object', Bucket=s3_mapping['aws_bucket'], Key=s3_key)
+                swift_hdrs = self.local_swift(
+                    'head_object', s3_mapping['container'], key)
+                print swift_hdrs
+                if 'server' not in swift_hdrs:
+                    return False
+                return headers
+            except:
+                return False
+        ret = wait_for_condition(5, check_upload)
+        self.assertEqual('True', ret['Metadata']['x-static-large-object'])
+        self.assertEqual('swift/test-archive', ret['ContentType'])
+
+        self.local_swift(
+            'post_object', s3_mapping['container'], key,
+            headers={'x-object-meta-bar': 'bar', 'x-object-meta-foo': 'qux'})
+
+        def check_meta():
+            hdrs = self.local_swift('head_object',
+                                    s3_mapping['container'], key)
+            if hdrs['x-object-meta-foo'] == 'qux':
+                return hdrs
+            else:
+                return False
+        hdrs = wait_for_condition(5, check_meta)
+
+        self.assertEqual('swift/test-archive', hdrs['content-type'])
+        self.assertEqual('qux', hdrs['x-object-meta-foo'])
+        self.assertEqual('bar', hdrs['x-object-meta-bar'])
+
+        clear_s3_bucket(self.s3_client, s3_mapping['aws_bucket'])
+        clear_swift_container(self.swift_src, s3_mapping['container'])
+        clear_swift_container(self.swift_src, 'segments')

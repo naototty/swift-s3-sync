@@ -65,8 +65,8 @@ class S3SyncShunt(object):
         if not obj and req.method == 'GET':
             return self.handle_listing(req, start_response, sync_profile, cont,
                                        per_account)
-        elif obj and req.method in ('GET', 'HEAD'):
-            # TODO: think about what to do for POST, COPY
+        elif obj and req.method in ('GET', 'HEAD', 'POST'):
+            # TODO: think about what to do for COPY
             return self.handle_object(req, start_response, sync_profile, obj,
                                       per_account)
         return self.app(env, start_response)
@@ -215,8 +215,15 @@ class S3SyncShunt(object):
                     app_iter = SwiftPutWrapper(
                         app_iter, put_headers, req.environ['PATH_INFO'],
                         self.app, self.logger)
-        else:
+        elif req.method == 'HEAD' or req.method == 'GET':
+            # HEAD and GET are the same if we are not attempting to restore
+            # the object.
             status_code, headers, app_iter = provider.shunt_object(req, obj)
+        elif req.method == 'POST':
+            status_code, headers, app_iter = provider.shunt_post(req, obj)
+        else:
+            # TODO: figure out what to do with COPY
+            return 404, [], ['']
         status = '%s %s' % (status_code, swob.RESPONSE_REASONS[status_code][0])
         self.logger.debug('Remote resp: %s' % status)
 

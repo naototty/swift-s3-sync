@@ -565,3 +565,31 @@ class TestSyncSwift(unittest.TestCase):
         self.sync_swift.upload_object('foo', 'policy', mock_ic)
         self.assertEqual([mock.call.head_object('bucketcontainer', 'foo')],
                          swift_client.mock_calls)
+
+    @mock.patch('s3_sync.sync_swift.swiftclient.client.Connection')
+    def test_shunt_post(self, mock_swift):
+        tests = [
+            {'req_headers': {'content-type': '',
+                             'x-object-meta-new': 'value'}},
+            {'req_headers': {'content-type': 'new/type',
+                             'x-object-meta-new': 'value'}}]
+
+        swift_client = mock.Mock()
+        mock_swift.return_value = swift_client
+
+        for test in tests:
+            req = mock.Mock()
+            req.headers = test['req_headers']
+            status, headers, body = self.sync_swift.shunt_post(req, 'object')
+
+            self.assertEqual(202, status)
+            self.assertEqual([], headers)
+            self.assertEqual([''], body)
+
+            expected_meta = dict([(k, v)
+                                  for k, v in test['req_headers'].items()
+                                  if k != 'x-static-large-object' and v])
+            swift_client.post_object.assert_called_once_with(
+                self.aws_bucket, 'object', headers=expected_meta)
+
+            swift_client.reset_mock()

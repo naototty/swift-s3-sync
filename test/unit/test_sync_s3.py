@@ -12,6 +12,7 @@ from swift.common import swob
 from utils import FakeStream
 from s3_sync import utils
 from s3_sync.sync_s3 import SyncS3
+import socket
 import unittest
 
 
@@ -814,8 +815,7 @@ class TestSyncS3(unittest.TestCase):
         self.sync_s3.upload_object(slo_key, storage_policy, mock_ic)
 
         self.sync_s3.update_slo_metadata.assert_called_once_with(
-            slo_meta, manifest, self.sync_s3.get_s3_name(slo_key),
-            swift_req_headers, mock_ic)
+            slo_meta, manifest, self.sync_s3.get_s3_name(slo_key))
         self.assertEqual(0, self.sync_s3._upload_slo.call_count)
         mock_ic.get_object_metadata.assert_called_once_with(
             'account', 'container', slo_key, headers=swift_req_headers)
@@ -907,19 +907,13 @@ class TestSyncS3(unittest.TestCase):
         }
         manifest = [
             {'name': '/segments/slo-object/part1',
-             'hash': 'abcdef'},
+             'hash': 'abcdef',
+             'bytes': 12 * SyncS3.MB},
             {'name': '/segments/slo-object/part2',
-             'hash': 'fedcba'}]
+             'hash': 'fedcba',
+             'bytes': 14 * SyncS3.MB}]
         s3_key = self.sync_s3.get_s3_name('slo-object')
         segment_lengths = [12 * SyncS3.MB, 14 * SyncS3.MB]
-        storage_policy = 42
-        swift_req_headers = {'X-Backend-Storage-Policy-Index': storage_policy,
-                             'X-Newest': True}
-
-        def get_object_metadata(account, container, key, headers={}):
-            return {'content-length': segment_lengths[int(key[-1]) - 1]}
-        mock_ic = mock.Mock()
-        mock_ic.get_object_metadata.side_effect = get_object_metadata
 
         self.mock_boto3_client.create_multipart_upload.return_value = {
             'UploadId': 'mpu-upload'}
@@ -933,8 +927,7 @@ class TestSyncS3(unittest.TestCase):
 
         self.mock_boto3_client.upload_part_copy.side_effect = upload_part_copy
 
-        self.sync_s3.update_slo_metadata(slo_meta, manifest, s3_key,
-                                         swift_req_headers, mock_ic)
+        self.sync_s3.update_slo_metadata(slo_meta, manifest, s3_key)
 
         self.mock_boto3_client.create_multipart_upload.assert_called_once_with(
             Bucket=self.aws_bucket, Key=s3_key,
@@ -945,13 +938,13 @@ class TestSyncS3(unittest.TestCase):
         self.mock_boto3_client.upload_part_copy.assert_has_calls([
             mock.call(Bucket=self.aws_bucket, Key=s3_key, PartNumber=1,
                       CopySource={'Bucket': self.aws_bucket, 'Key': s3_key},
-                      CopySourceRange='bytes=0-%d' % (12 * SyncS3.MB - 1),
+                      CopySourceRange='bytes=0-%d' % (segment_lengths[0] - 1),
                       UploadId='mpu-upload'),
             mock.call(Bucket=self.aws_bucket, Key=s3_key, PartNumber=2,
                       CopySource={'Bucket': self.aws_bucket, 'Key': s3_key},
                       CopySourceRange='bytes=%d-%d' % (
-                          12 * SyncS3.MB,
-                          26 * SyncS3.MB - 1),
+                          segment_lengths[0],
+                          sum(segment_lengths) - 1),
                       UploadId='mpu-upload')
         ])
         self.mock_boto3_client.complete_multipart_upload\
@@ -961,15 +954,6 @@ class TestSyncS3(unittest.TestCase):
                                          {'PartNumber': 1, 'ETag': 'abcdef'},
                                          {'PartNumber': 2, 'ETag': 'fedcba'}
                                      ]})
-        mock_ic.get_object_metadata.assert_has_calls(
-            [mock.call(self.sync_s3.account,
-                       'segments',
-                       'slo-object/part1',
-                       headers=swift_req_headers),
-             mock.call(self.sync_s3.account,
-                       'segments',
-                       'slo-object/part2',
-                       headers=swift_req_headers)])
 
     def test_slo_metadata_update_encryption(self):
         slo_meta = {
@@ -980,14 +964,9 @@ class TestSyncS3(unittest.TestCase):
         }
         manifest = [
             {'name': '/segments/slo-object/part1',
-             'hash': 'abcdef'}]
+             'hash': 'abcdef',
+             'bytes': 12 * SyncS3.MB}]
         s3_key = self.sync_s3.get_s3_name('slo-object')
-        segment_lengths = [12 * SyncS3.MB, 14 * SyncS3.MB]
-
-        def get_object_metadata(account, container, key, headers):
-            return {'content-length': segment_lengths[int(key[-1]) - 1]}
-        mock_ic = mock.Mock()
-        mock_ic.get_object_metadata.side_effect = get_object_metadata
 
         self.mock_boto3_client.create_multipart_upload.return_value = {
             'UploadId': 'mpu-upload'}
@@ -999,8 +978,7 @@ class TestSyncS3(unittest.TestCase):
 
         self.mock_boto3_client.upload_part_copy.side_effect = upload_part_copy
 
-        self.sync_s3.update_slo_metadata(slo_meta, manifest, s3_key, {},
-                                         mock_ic)
+        self.sync_s3.update_slo_metadata(slo_meta, manifest, s3_key)
 
         self.mock_boto3_client.create_multipart_upload.assert_called_once_with(
             Bucket=self.aws_bucket, Key=s3_key,
@@ -1294,3 +1272,239 @@ class TestSyncS3(unittest.TestCase):
             Prefix=prefix,
             MaxKeys=10)
         self.assertEqual(500, status)
+
+    def test_shunt_post_error(self):
+        errors = [
+            ClientError(dict(
+                ResponseMetadata=dict(
+                    HTTPStatusCode=404,
+                    HTTPHeaders={'Error': 'sadness'}),
+                Error=dict(Message='Not found')), 'HEAD object'),
+            RuntimeError('Whoops!'),
+            socket.error('Probably should never happen', 11)]
+        for err in errors:
+            self.mock_boto3_client.head_object.side_effect = err
+            status, headers, body = self.sync_s3.shunt_post(
+                None, 'update-object')
+            if isinstance(err, ClientError):
+                self.assertEqual(404, status)
+                self.assertEqual(
+                    err.response['ResponseMetadata']['HTTPHeaders'].items(),
+                    headers)
+                self.assertEqual(err.response['Error']['Message'], body)
+            else:
+                self.assertEqual(502, status)
+                self.assertEqual([], headers)
+                self.assertEqual([''], body)
+
+            self.mock_boto3_client.head_object.reset_mock()
+
+    def test_shunt_post(self):
+        s3_key = self.sync_s3.get_s3_name('object')
+
+        s3_expected_params = dict(
+            CopySource=dict(
+                    Bucket=self.aws_bucket,
+                    Key=s3_key),
+            MetadataDirective='REPLACE',
+            Bucket=self.aws_bucket,
+            Key=s3_key)
+
+        aws_expected_params = dict(ServerSideEncryption='AES256')
+
+        tests = [
+            {'head_meta': dict(ContentType='s3/type',
+                               Metadata={'x-object-meta-new': 'foo'}),
+             'req_headers': {'content-type': '',
+                             'x-object-meta-new': 'value'}},
+            {'head_meta': dict(ContentType='s3/type', Metadata={}),
+             'req_headers': {'content-type': '',
+                             'x-object-meta-new': 'value'}},
+            {'head_meta': dict(ContentType='s3/type',
+                               Metadata={}),
+             'req_headers': {'content-type': 'swift/type',
+                             'x-object-meta-new': 'value'}},
+            {'head_meta': dict(ContentType='s3/type', Metadata={}),
+             'req_headers': {'content-type': '',
+                             'x-object-meta-new': 'value'},
+             'provider': 'google'},
+            {'head_meta': dict(ContentType='s3/type',
+                               Metadata={'x-object-meta-new': 'foo'}),
+             'req_headers': {'content-type': '',
+                             'x-object-meta-new': 'value'},
+             'provider': 'google'},
+            {'head_meta': dict(ContentType='s3/type',
+                               Metadata={'x-static-large-object': 'True',
+                                         utils.SLO_ETAG_FIELD: 'slo-etag'}),
+             'req_headers': {'content-type': '',
+                             'x-object-meta-new': 'value'},
+             'provider': 'google'},
+            {'head_meta': dict(ContentType='s3/type', Metadata={}),
+             'provider': 'other-s3',
+             'req_headers': {'content-type': '',
+                             'x-object-meta-new': 'value'}},
+            {'head_meta': dict(ContentType='s3/type',
+                               Metadata={'x-object-meta-new': 'foo'}),
+             'provider': 'other-s3',
+             'req_headers': {'content-type': '',
+                             'x-object-meta-new': 'value'}}
+        ]
+
+        for test in tests:
+            if test.get('provider') == 'google':
+                self.sync_s3.endpoint = SyncS3.GOOGLE_API
+            elif test.get('provider') == 'other-s3':
+                self.sync_s3.endpoint = 'http://some-s3.clone'
+
+            self.mock_boto3_client.head_object.return_value = test['head_meta']
+            req = mock.Mock()
+            req.headers = test['req_headers']
+
+            status, headers, body = self.sync_s3.shunt_post(req, 'object')
+
+            self.assertEqual(202, status)
+            self.assertEqual([], headers)
+            self.assertEqual([''], body)
+            self.mock_boto3_client.head_object.assert_called_once_with(
+                Bucket=self.aws_bucket, Key=s3_key)
+            expected_content = test['head_meta']['ContentType']
+            if 'content-type' in test['req_headers']:
+                expected_content = test['req_headers']['content-type']
+
+            expected_meta = dict([(k[len(utils.SWIFT_USER_META_PREFIX):], v)
+                                  for k, v in test['req_headers'].items()
+                                  if k.startswith(
+                                    utils.SWIFT_USER_META_PREFIX)])
+            s3_meta = test['head_meta']['Metadata']
+            if self.sync_s3._google() and utils.SLO_HEADER in s3_meta:
+                expected_meta[utils.SLO_HEADER] = s3_meta[utils.SLO_HEADER]
+                expected_meta[utils.SLO_ETAG_FIELD] =\
+                    s3_meta[utils.SLO_ETAG_FIELD]
+
+            post_expected_args = dict(s3_expected_params)
+            if self.sync_s3._is_amazon():
+                post_expected_args.update(aws_expected_params)
+
+            post_expected_args['Metadata'] = expected_meta
+            post_expected_args['ContentType'] = expected_content
+            self.mock_boto3_client.copy_object.assert_called_once_with(
+                **post_expected_args)
+            self.mock_boto3_client.reset_mock()
+
+    def test_shunt_slo_post(self):
+        tests = [{'head_meta': dict(
+                    ContentType='s3/type',
+                    Metadata={'x-static-large-object': 'True'}),
+                  'req_headers': {'content-type': '',
+                                  'x-object-meta-new': 'value'},
+                  'manifest': [{'bytes': 1000, 'hash': 'part1-hash'},
+                               {'bytes': 1000, 'hash': 'part2-hash'}]},
+                 {'head_meta': dict(
+                    ContentType='s3/type',
+                    Metadata={'x-static-large-object': 'True',
+                              'x-object-meta-new': 'foo'}),
+                  'req_headers': {'content-type': '',
+                                  'x-object-meta-new': 'value'},
+                  'manifest': [{'bytes': 1000, 'hash': 'part1-hash'},
+                               {'bytes': 1000, 'hash': 'part2-hash'}]},
+                 {'head_meta': dict(
+                   ContentType='s3/type',
+                   Metadata={'x-static-large-object': 'True'}),
+                  'req_headers': {'content-type': '',
+                                  'x-object-meta-new': 'value'},
+                  'manifest': [{'bytes': 1000, 'hash': 'part1-hash'},
+                               {'bytes': 1000, 'hash': 'part2-hash'}],
+                  'provider': 'other-s3'},
+                 {'head_meta': dict(
+                   ContentType='s3/type',
+                   Metadata={'x-static-large-object': 'True',
+                             'x-object-meta-new': 'foo'}),
+                  'req_headers': {'content-type': '',
+                                  'x-object-meta-new': 'value'},
+                  'manifest': [{'bytes': 1000, 'hash': 'part1-hash'},
+                               {'bytes': 1000, 'hash': 'part2-hash'}],
+                  'provider': 'other-s3'}]
+
+        s3_key = self.sync_s3.get_s3_name('object')
+
+        mpu_expected_params = dict(
+            Bucket=self.aws_bucket,
+            Key=s3_key)
+        aws_only_params = dict(ServerSideEncryption='AES256')
+
+        for test in tests:
+            self.mock_boto3_client.head_object.return_value = test['head_meta']
+            req = mock.Mock()
+            req.headers = test['req_headers']
+
+            # For SLO, we have to do a multipart upload to update the
+            # metadata, but using the UploadPartCopy interface.
+            body = StringIO(json.dumps(test['manifest']))
+            self.mock_boto3_client.get_object.return_value = dict(
+                Body=body)
+
+            mpu_id = 'mpu-id'
+            self.mock_boto3_client.create_multipart_upload.return_value =\
+                dict(UploadId=mpu_id)
+
+            def upload_part(**kwargs):
+                etag = test['manifest'][kwargs['PartNumber'] - 1]['hash']
+                return dict(CopyPartResult=dict(ETag='"%s"' % etag))
+
+            self.mock_boto3_client.upload_part_copy.side_effect =\
+                upload_part
+
+            if test.get('provider') == 'other-s3':
+                self.sync_s3.endpoint = 'http://some-s3.clone'
+
+            status, headers, body = self.sync_s3.shunt_post(req, 'object')
+
+            self.assertEqual(202, status)
+            self.assertEqual([], headers)
+            self.assertEqual([''], body)
+            self.mock_boto3_client.head_object.assert_called_once_with(
+                Bucket=self.aws_bucket, Key=s3_key)
+            expected_content = test['head_meta']['ContentType']
+            if 'content-type' in test['req_headers']:
+                expected_content = test['req_headers']['content-type']
+            expected_meta = dict([(k[len(utils.SWIFT_USER_META_PREFIX):], v)
+                                  for k, v in test['req_headers'].items()
+                                  if k.startswith(
+                                    utils.SWIFT_USER_META_PREFIX)])
+
+            expected_meta[utils.SLO_HEADER] = 'True'
+            self.mock_boto3_client.get_object.assert_called_once_with(
+                Bucket=self.aws_bucket,
+                Key=self.sync_s3.get_manifest_name(s3_key))
+            create_mpu_params = dict(mpu_expected_params)
+            if self.sync_s3._is_amazon():
+                create_mpu_params.update(aws_only_params)
+            create_mpu_params['ContentType'] = expected_content
+            create_mpu_params['Metadata'] = expected_meta
+            self.mock_boto3_client.create_multipart_upload\
+                .assert_called_once_with(**create_mpu_params)
+            part_copy_calls = []
+            offset = 0
+            for i, part in enumerate(test['manifest']):
+                part_copy_calls.append(mock.call(
+                    Bucket=self.aws_bucket,
+                    CopySource=dict(Bucket=self.aws_bucket, Key=s3_key),
+                    CopySourceRange='bytes=%d-%d' % (
+                        offset, offset + part['bytes'] - 1),
+                    Key=s3_key,
+                    PartNumber=i + 1,
+                    UploadId=mpu_id))
+                offset += part['bytes']
+            self.mock_boto3_client.upload_part_copy.assert_has_calls(
+                part_copy_calls)
+            self.mock_boto3_client.complete_multipart_upload\
+                .assert_called_once_with(
+                    Bucket=self.aws_bucket,
+                    Key=s3_key,
+                    UploadId=mpu_id,
+                    MultipartUpload={
+                        'Parts': [{'PartNumber': i + 1,
+                                   'ETag': part['hash']}
+                                  for i, part in enumerate(test['manifest'])]})
+
+            self.mock_boto3_client.reset_mock()

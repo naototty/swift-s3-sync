@@ -163,14 +163,6 @@ class SyncSwift(BaseSync):
                        if header in req.headers}
             headers['X-Trans-Id-Extra'] = req.environ['swift.trans_id']
 
-            def translate(header, value):
-                if header.lower() in ('x-trans-id', 'x-openstack-request-id'):
-                    return ('Remote-' + header, value)
-                if header == 'content-length':
-                    # Capitalize, so eventlet doesn't try to add its own
-                    return ('Content-Length', value)
-                return (header, value)
-
             try:
                 if req.method == 'GET':
                     headers, body_iter = swift_client.get_object(
@@ -185,18 +177,41 @@ class SyncSwift(BaseSync):
                                      req.method)
 
                 status = 206 if 'content-range' in headers else 200
-                headers = [translate(header, value)
+                headers = [self._translate_remote_hdr(header, value)
                            for header, value in headers.items()]
                 return status, headers, body_iter
             except swiftclient.exceptions.ClientException as e:
                 headers = [
-                    translate(header, value)
+                    self._translate_remote_hdr(header, value)
                     for header, value in e.http_response_headers.items()]
                 return (e.http_status, headers,
                         [e.http_response_content])
             except Exception:
                 self.logger.exception('Error contacting remote swift cluster')
                 return 502, [], ['Bad Gateway' if req.method == 'GET' else '']
+
+    def shunt_post(self, req, name):
+        """Propagate metadata update to the remote store.
+
+        :returns: (status, headers, ['']) tuple
+        """
+        with self.client_pool.get_client() as client:
+            swift_client = client.client
+
+            headers = dict([(k, req.headers[k]) for k in req.headers.keys()
+                            if req.headers[k]])
+            try:
+                swift_client.post_object(
+                    self.remote_container, name, headers=headers)
+                return (202, [], [''])
+            except swiftclient.exceptions.ClientException as e:
+                headers = [
+                    self._translate_remote_hdr(header, value)
+                    for header, value in e.http_response_headers.items()]
+                return (e.http_status, headers, [e.http_response_content])
+            except Exception:
+                self.logger.exception('Error contacting remote swift cluster')
+                return (502, [], [''])
 
     def list_objects(self, marker, limit, prefix, delimiter):
         try:
@@ -339,3 +354,12 @@ class SyncSwift(BaseSync):
         return dict([(key, value) for key, value in all_headers.items()
                      if key.lower().startswith(SWIFT_USER_META_PREFIX) or
                      key.lower() == 'content-type'])
+
+    @staticmethod
+    def _translate_remote_hdr(header, value):
+        if header.lower() in ('x-trans-id', 'x-openstack-request-id'):
+            return ('Remote-' + header, value)
+        if header == 'content-length':
+            # Capitalize, so eventlet doesn't try to add its own
+            return ('Content-Length', value)
+        return (header, value)
