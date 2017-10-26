@@ -12,9 +12,10 @@ similarly setup through:
 `./venv/bin/pip install -r requirements-test.txt`.
 
 To run unit tests, you can simply run `nose`: `./venv/bin/nosetests`. The unit
-tests will require swift, container-crawler, and swiftstack-auth to be in your
+tests will require swift and container-crawler to be in your
 `PYTHONPATH`. Typically, I run them with the following convoluted line:
-`PYTHONPATH=~/swift:~/swiftstack-auth:~/container-crawler ./venv/bin/nosetests`.
+`PYTHONPATH=~/swift:~/container-crawler ./venv/bin/nosetests`.
+`PYTHONPATH=~/swift:~/container-crawler ./venv/bin/nosetests`.
 This assumes that all of the dependencies are in your home directory. You can
 adjust this if they live in other places.
 
