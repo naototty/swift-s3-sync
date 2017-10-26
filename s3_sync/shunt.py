@@ -9,21 +9,15 @@ except ImportError:
     # compat for < ss-swift-2.15.1.3
     from swift.common.request_helpers import get_listing_content_type
 
-try:
-    from swiftstack_auth.utils import fix_mw_logging
-except ImportError:
-    def fix_mw_logging(logger):
-        return logger
-
 from .provider_factory import create_provider
 from .utils import check_slo, SwiftPutWrapper, SwiftSloPutWrapper
 
 
 class S3SyncShunt(object):
     def __init__(self, app, conf_file, conf):
-        self.logger = fix_mw_logging(utils.get_logger(
+        self.logger = utils.get_logger(
             conf, name='proxy-server:s3_sync.shunt',
-            log_route='s3_sync.shunt'))
+            log_route='s3_sync.shunt')
 
         self.app = app
         try:
