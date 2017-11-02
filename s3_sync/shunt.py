@@ -182,7 +182,15 @@ class S3SyncShunt(object):
         provider = create_provider(sync_profile, max_conns=1,
                                    per_account=per_account)
         if req.method == 'GET' and sync_profile.get('restore_object', False):
-            # We incur an extra request hit by checking for a possible SLO.
+            # NOTE: get_manifest() must be called first! If we call
+            # shunt_object() first, examine the headers, and then call
+            # get_manifest(), we end up re-using the connection and reused the
+            # returned stream. A better solution would be to not put the
+            # connection back in the pool until after the body has been read.
+            # However, the current framework does not support that. If we
+            # change this behavior, we would need to make one more change to
+            # make sure to use at least two connections in the provider pool to
+            # avoid a deadlock.
             manifest = provider.get_manifest(obj)
             self.logger.debug("Manifest: %s" % manifest)
             status_code, headers, app_iter = provider.shunt_object(req, obj)
