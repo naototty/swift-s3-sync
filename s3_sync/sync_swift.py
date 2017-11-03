@@ -2,6 +2,7 @@ import eventlet
 import json
 import swiftclient
 import traceback
+from container_crawler import RetryError
 from swift.common.utils import FileLikeIter
 from swift.common.internal_client import UnexpectedResponse
 from .base_sync import BaseSync
@@ -315,11 +316,12 @@ class SyncSwift(BaseSync):
                 # The segments may not exist, so we need to create it
                 if e.http_status == 404:
                     self.logger.debug('Creating a segments container %s' % (
-                        container))
+                        dest_container))
+                    # Creating a container may take some (small) amount of time
+                    # and we should attempt to re-upload in the following
+                    # iteration
                     swift_client.put_container(dest_container)
-                    swift_client.put_object(dest_container, obj, wrapper,
-                                            etag=segment['hash'],
-                                            content_length=len(wrapper))
+                    raise RetryError('Missing segments container')
 
     @staticmethod
     def _is_meta_synced(local_metadata, remote_metadata):
