@@ -43,6 +43,9 @@ class FileWrapper(object):
         self._swift_stream.close()
         self.open_object_stream()
 
+    def reset(self, *args, **kwargs):
+        self.seek(0)
+
     def read(self, size=-1):
         if self._bytes_read == self.__len__():
             return ''
@@ -104,6 +107,9 @@ class SLOFileWrapper(object):
         self._segment.close()
         self._segment = None
         self._segment_index = 0
+
+    def reset(self, *args, **kwargs):
+        self.seek(0)
 
     def _open_next_segment(self):
         segment = self._manifest[self._segment_index]
