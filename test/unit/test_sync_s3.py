@@ -44,7 +44,8 @@ class TestSyncS3(unittest.TestCase):
         wrapper.get_s3_headers.return_value = {}
         mock_file_wrapper.return_value = wrapper
         self.mock_boto3_client.head_object.side_effect = ClientError(
-            {'Error': {'Code': 404}}, 'HEAD')
+            {'Error': {'Code': 'NotFound'},
+             'ResponseMetadata': {'HTTPStatusCode': 404}}, 'HEAD')
         self.sync_s3.check_slo = mock.Mock()
         self.sync_s3.check_slo.return_value = False
         mock_ic = mock.Mock()
@@ -81,7 +82,8 @@ class TestSyncS3(unittest.TestCase):
         wrapper.get_s3_headers.return_value = {}
         mock_file_wrapper.return_value = wrapper
         self.mock_boto3_client.head_object.side_effect = ClientError(
-            {'Error': {'Code': 404}}, 'HEAD')
+            {'Error': {'Code': 'NotFound'},
+             'ResponseMetadata': {'HTTPStatusCode': 404}}, 'HEAD')
         self.sync_s3.check_slo = mock.Mock()
         self.sync_s3.check_slo.return_value = False
         mock_ic = mock.Mock()
@@ -117,7 +119,8 @@ class TestSyncS3(unittest.TestCase):
         wrapper.get_s3_headers.return_value = {}
         mock_file_wrapper.return_value = wrapper
         self.mock_boto3_client.head_object.side_effect = ClientError(
-            {'Error': {'Code': 404}}, 'HEAD')
+            {'Error': {'Code': 'NotFound'},
+             'ResponseMetadata': {'HTTPStatusCode': 404}}, 'HEAD')
         self.sync_s3.check_slo = mock.Mock()
         self.sync_s3.check_slo.return_value = False
         mock_ic = mock.Mock()
@@ -161,7 +164,8 @@ class TestSyncS3(unittest.TestCase):
         wrapper.get_s3_headers.return_value = {}
         mock_file_wrapper.return_value = wrapper
         self.mock_boto3_client.head_object.side_effect = ClientError(
-            {'Error': {'Code': 404}}, 'HEAD')
+            {'Error': {'Code': 'NotFound'},
+             'ResponseMetadata': {'HTTPStatusCode': 404}}, 'HEAD')
         self.sync_s3.check_slo = mock.Mock()
         self.sync_s3.check_slo.return_value = False
         mock_ic = mock.Mock()
@@ -372,7 +376,9 @@ class TestSyncS3(unittest.TestCase):
 
     def test_delete_missing_object(self):
         key = 'key'
-        error = ClientError({'Error': {'Code': 404}}, None)
+        error = ClientError(
+            {'Error': {'Code': 'NotFound'},
+             'ResponseMetadata': {'HTTPStatusCode': 404}}, None)
         self.mock_boto3_client.delete_object.side_effect = error
         self.sync_s3.delete_object(key)
         self.mock_boto3_client.delete_object.assert_has_calls([
@@ -438,7 +444,8 @@ class TestSyncS3(unittest.TestCase):
                      'hash': 'beefdead'}]
 
         self.mock_boto3_client.head_object.side_effect = ClientError(
-            {'Error': {'Code': 404}}, 'HEAD')
+            {'Error': {'Code': 'NotFound'},
+             'ResponseMetadata': {'HTTPStatusCode': 404}}, 'HEAD')
 
         def get_metadata(account, container, key, headers):
             if key == slo_key:
@@ -584,7 +591,8 @@ class TestSyncS3(unittest.TestCase):
                      'bytes': 200}]
 
         self.mock_boto3_client.head_object.side_effect = ClientError(
-            {'Error': {'Code': 404}}, 'HEAD')
+            {'Error': {'Code': 'NotFound'},
+             'ResponseMetadata': {'HTTPStatusCode': 404}}, 'HEAD')
 
         def get_metadata(account, container, key, headers):
             if key == slo_key:
