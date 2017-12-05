@@ -1,3 +1,14 @@
+## 0.1.21 (2017-12-05)
+
+Bug fixes:
+
+    - Fix the retries of uploads into Swift by adding support for the `reset()`
+      method in the FilePutWrapper and SLOPutWrapper. Previously, Swift would
+      never retry a failed upload.
+    - No longer issues a PUT object request if the segments container was
+      missing and had to be created, but instead we wait until the following
+      iteration to retry segment upload.
+
 ## 0.1.20 (2017-10-09)
 
 Bug fixes:
