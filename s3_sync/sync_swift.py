@@ -2,7 +2,6 @@ import eventlet
 import json
 import swiftclient
 import traceback
-from container_crawler import RetryError
 from swift.common.utils import FileLikeIter
 from swift.common.internal_client import UnexpectedResponse
 from .base_sync import BaseSync
@@ -321,7 +320,7 @@ class SyncSwift(BaseSync):
                     # and we should attempt to re-upload in the following
                     # iteration
                     swift_client.put_container(dest_container)
-                    raise RetryError('Missing segments container')
+                    raise RuntimeError('Missing segments container')
 
     @staticmethod
     def _is_meta_synced(local_metadata, remote_metadata):
