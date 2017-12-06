@@ -1,3 +1,10 @@
+## 0.1.22 (2017-12-05)
+
+Improvement:
+
+    - Removed the dependency on the `container_crawler` library in the
+      `sync_swift` module.
+
 ## 0.1.21 (2017-12-05)
 
 Bug fixes:
