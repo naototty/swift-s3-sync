@@ -52,22 +52,23 @@ def swift_content_location(mapping):
                          mapping['aws_bucket'])
 
 
-class TestCloudSync(unittest.TestCase):
-    IMAGE_NAME = 'cloud-sync/test'
-    PORTS = {}
+def get_container_ports(image_name):
+    if 'DOCKER' in os.environ:
+        return dict(swift=8080, s3=10080)
     if 'TEST_CONTAINER' in os.environ:
         container = os.environ['TEST_CONTAINER']
     else:
         cmd = 'docker ps -f ancestor=%s -f status=running '\
-              '--format "{{.Names}}"' % IMAGE_NAME
+              '--format "{{.Names}}"' % image_name
         images = subprocess.check_output(cmd.split())
         if not images:
             raise RuntimeError('Cannot find container from image %s' %
-                               IMAGE_NAME)
+                               image_name)
         container = images.split()[0][1:-1]
 
     cmd = 'docker port %s' % container
     try:
+        ports = {}
         for line in subprocess.check_output(cmd.split()).split('\n'):
             if not line.strip():
                 continue
@@ -75,13 +76,19 @@ class TestCloudSync(unittest.TestCase):
             docker_port = int(docker.split('/')[0])
             host_port = int(host.split(':')[1])
             if docker_port == 8080:
-                PORTS['swift'] = host_port
+                ports['swift'] = host_port
             elif docker_port == 10080:
-                PORTS['s3'] = host_port
+                ports['s3'] = host_port
     except subprocess.CalledProcessError as e:
         print e.output
         print e.retcode
         raise
+    return ports
+
+
+class TestCloudSync(unittest.TestCase):
+    IMAGE_NAME = 'cloud-sync/test'
+    PORTS = get_container_ports(IMAGE_NAME)
 
     CLOUD_SYNC_CONF = os.path.join(
         os.path.dirname(__file__), '../container/swift-s3-sync.conf')
