@@ -99,7 +99,7 @@ filesystem and uses a Swift all-in-one docker container as the base.
 The container must map the swift-s3-sync source tree when launching:
 
 ```
-docker run -P -d -v `pwd`:/swift-s3-sync cloud-sync
+docker run -P -d -v `pwd`:/swift-s3-sync swift-s3-sync
 ```
 
 After this, we can check the port mappings: `docker port <container name>`.
@@ -164,12 +164,12 @@ provider. Currently, the tests use a Docker container to provide Swift and are
 configured to talk to [S3Proxy](https://github.com/andrewgaul/s3proxy).
 
 To build the test container, run:
-`docker build -t cloud-sync/test test/container`
+`docker build -t swift-s3-sync test/container`
 
-Once this completes, you will have a docker container tagged `cloud-sync/test`.
+Once this completes, you will have a docker container tagged `swift-s3-sync`.
 Start the container with:
 
-`docker run -P -d -v <swift-s3-sync checkout>:/swift-s3-sync cloud-sync/test`.
+`docker run -P -d -v <swift-s3-sync checkout>:/swift-s3-sync swift-s3-sync`.
 The container will be started in the background (`-d`) and will expose ports
 8080 and 10080 (`-P`) to connect to Swift and S3Proxy, respectively. It is based
 on the
@@ -192,7 +192,7 @@ Once you have S3Proxy and the Docker container running, run the tests with:
 ```
 
 By default tests will look for the first running container that has been started
-from an image named `cloud-sync/test`. You can override that behavior by
+from an image named `swift-s3-sync`. You can override that behavior by
 specifying the test container to use with the `TEST_CONTAINER` environment
 variable.
 
