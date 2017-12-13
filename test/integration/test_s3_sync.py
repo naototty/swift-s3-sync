@@ -1,3 +1,19 @@
+"""
+Copyright 2017 SwiftStack
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+"""
+
 import boto3
 import botocore.exceptions
 import hashlib
@@ -34,7 +50,7 @@ def wait_for_condition(timeout, checker):
 
 def s3_prefix(account, container, key):
     md5_prefix = hashlib.md5('%s/%s' % (account, container))
-    return hex(long(md5_prefix.hexdigest(), 16) % 16**6)[2:-1]
+    return hex(long(md5_prefix.hexdigest(), 16) % 16 ** 6)[2:-1]
 
 
 def s3_key_name(mapping, key):
@@ -271,7 +287,7 @@ class TestCloudSync(unittest.TestCase):
                 try:
                     return self.s3('head_object',
                                    Bucket=s3_mapping['aws_bucket'], Key=s3_key)
-                except:
+                except Exception:
                     return False
 
             head_resp = wait_for_condition(5, _check_sync)
@@ -315,7 +331,7 @@ class TestCloudSync(unittest.TestCase):
                 try:
                     return self.remote_swift(
                         'head_object', mapping['aws_bucket'], key)
-                except:
+                except Exception:
                     return False
 
             head_resp = wait_for_condition(5, _check_sync)
@@ -412,10 +428,10 @@ class TestCloudSync(unittest.TestCase):
                     'Parts': [
                         {'PartNumber': 1,
                          'ETag': hashlib.md5(
-                            content[:(5 * 1024 * 1024)]).hexdigest()},
+                             content[:(5 * 1024 * 1024)]).hexdigest()},
                         {'PartNumber': 2,
                          'ETag': hashlib.md5(
-                            content[(5 * 1024 * 1024):]).hexdigest()}]})
+                             content[(5 * 1024 * 1024):]).hexdigest()}]})
 
         hdrs, listing = self.local_swift('get_container', mapping['container'])
         self.assertEqual(0, int(hdrs['x-container-object-count']))

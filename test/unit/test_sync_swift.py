@@ -1,13 +1,29 @@
+"""
+Copyright 2017 SwiftStack
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+"""
+
 import json
 import mock
-import swiftclient
-from utils import FakeStream
-from swift.common import swob
-from s3_sync import utils
 from s3_sync.sync_swift import SyncSwift
-import unittest
+from s3_sync import utils
+import swiftclient
 from swiftclient.exceptions import ClientException
+from swift.common import swob
 from swift.common.internal_client import UnexpectedResponse
+import unittest
+from utils import FakeStream
 
 
 class TestSyncSwift(unittest.TestCase):

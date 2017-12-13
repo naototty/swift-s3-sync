@@ -1,16 +1,32 @@
-import eventlet
+"""
+Copyright 2017 SwiftStack
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+"""
+
 import boto3
 import botocore.exceptions
 from botocore.handlers import (
     conditionally_calculate_md5, set_list_objects_encoding_type_url)
+import eventlet
 import hashlib
 import json
 import re
 import traceback
 import urllib
 
-from swift.common.utils import FileLikeIter
 from swift.common.internal_client import UnexpectedResponse
+from swift.common.utils import FileLikeIter
 from .base_sync import BaseSync
 from .utils import (
     convert_to_s3_headers, convert_to_swift_headers, FileWrapper,

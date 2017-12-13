@@ -1,0 +1,22 @@
+[flake8]
+exclude =
+    .git,
+    venv,
+    test/container,
+    build,
+    dist,
+    src
+ignore =
+    # module level import not at top of file (caused by eventlet)
+    E402,
+    # Python 3.x incompatible use of print operator
+    H233,
+    # No relative imports
+    H304,
+    # One import per line
+    H301,
+    # Use TODO(NAME)
+    H101,
+    # no 'except:' at least use 'except Exception:'
+    H201,
+    E722
