@@ -6,7 +6,9 @@ RUN apt-get update && \
 
 RUN pip install -e git://github.com/swiftstack/botocore.git@1.4.32.5#egg=botocore && \
     pip install boto3==1.3.1 && \
-    pip install -e git://github.com/swiftstack/container-crawler.git@0.0.9#egg=container-crawler
+    pip install -e git://github.com/swiftstack/container-crawler.git@0.0.9#egg=container-crawler && \
+    pip install nose flake8==3.5.0 && \
+    pip uninstall -y hacking
 
 RUN mkdir -p /s3proxy/data
 RUN cd /s3proxy && wget https://github.com/andrewgaul/s3proxy/releases/download/s3proxy-1.5.3/s3proxy

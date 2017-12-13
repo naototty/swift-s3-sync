@@ -1,18 +1,34 @@
 # -*- coding: UTF-8 -*-
 
+"""
+Copyright 2017 SwiftStack
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+"""
+
+import boto3
+from botocore.exceptions import ClientError
+from botocore.vendored.requests.exceptions import RequestException
 from cStringIO import StringIO
 import datetime
 import hashlib
 import json
 import mock
-import boto3
-from botocore.exceptions import ClientError
-from botocore.vendored.requests.exceptions import RequestException
-from swift.common import swob
-from utils import FakeStream
-from s3_sync import utils
 from s3_sync.sync_s3 import SyncS3
+from s3_sync import utils
+from swift.common import swob
 import unittest
+from utils import FakeStream
 
 
 class TestSyncS3(unittest.TestCase):
@@ -372,7 +388,7 @@ class TestSyncS3(unittest.TestCase):
                       Key=self.sync_s3.get_s3_name(key)),
             mock.call(Bucket=self.aws_bucket,
                       Key=self.sync_s3.get_manifest_name(
-                        self.sync_s3.get_s3_name(key)))])
+                          self.sync_s3.get_s3_name(key)))])
 
     def test_delete_missing_object(self):
         key = 'key'
@@ -386,7 +402,7 @@ class TestSyncS3(unittest.TestCase):
                       Key=self.sync_s3.get_s3_name(key)),
             mock.call(Bucket=self.aws_bucket,
                       Key=self.sync_s3.get_manifest_name(
-                        self.sync_s3.get_s3_name(key)))])
+                          self.sync_s3.get_s3_name(key)))])
 
     @mock.patch('s3_sync.sync_s3.boto3.session.Session')
     def test_s3_name(self, mock_session):
@@ -575,7 +591,7 @@ class TestSyncS3(unittest.TestCase):
                               Key=sync.get_s3_name('object')),
                     mock.call(Bucket=settings['aws_bucket'],
                               Key=sync.get_manifest_name(
-                                sync.get_s3_name('object')))])
+                                  sync.get_s3_name('object')))])
 
     def test_google_slo_upload(self):
         self.sync_s3._google = lambda: True
