@@ -103,7 +103,7 @@ def get_container_ports(image_name):
 
 
 class TestCloudSync(unittest.TestCase):
-    IMAGE_NAME = 'cloud-sync/test'
+    IMAGE_NAME = 'swift-s3-sync'
     PORTS = get_container_ports(IMAGE_NAME)
 
     CLOUD_SYNC_CONF = os.path.join(
