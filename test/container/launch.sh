@@ -33,17 +33,18 @@ if [ 0 -ne $? ]; then
     sed -i 's/tempurl tempauth/& cloud_sync_shunt/' /etc/swift/proxy-server.conf
     cat <<EOF >> /etc/swift/proxy-server.conf
 [filter:cloud_sync_shunt]
-use = call:s3_sync.shunt:filter_factory
+use = egg:swift-s3-sync#cloud-shunt
 conf_file = /swift-s3-sync/test/container/swift-s3-sync.conf
 EOF
 fi
 
 set -e
 
-/usr/bin/sudo -u swift PYTHONPATH=/swift-s3-sync /swift/bin/startmain
+cd /swift-s3-sync; pip install -e .
 
-PYTHONPATH=/opt/ss/lib/python2.7/dist-packages:/swift-s3-sync \
-    python -m s3_sync --log-level debug \
+/usr/bin/sudo -u swift /swift/bin/startmain
+
+python -m s3_sync --log-level debug \
     --config /swift-s3-sync/test/container/swift-s3-sync.conf &
 
 /bin/bash /s3proxy/s3proxy \
