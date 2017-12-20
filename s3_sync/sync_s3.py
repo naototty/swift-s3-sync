@@ -28,6 +28,7 @@ import urllib
 from swift.common.internal_client import UnexpectedResponse
 from swift.common.utils import FileLikeIter
 from .base_sync import BaseSync
+from .base_sync import ProviderResponse
 from .utils import (
     convert_to_s3_headers, convert_to_swift_headers, FileWrapper,
     SLOFileWrapper, get_slo_etag, check_slo, SLO_ETAG_FIELD, SLO_HEADER,
@@ -184,41 +185,62 @@ class SyncS3(BaseSync):
             raise ValueError('Expected GET or HEAD, not %s' % req.method)
 
         s3_key = self.get_s3_name(swift_key)
+        headers_to_copy = ('Range', 'If-Match', 'If-None-Match',
+                           'If-Modified-Since', 'If-Unmodified-Since')
+        kwargs = {}
+        kwargs.update({
+            header.replace('-', ''): req.headers[header]
+            for header in headers_to_copy if header in req.headers})
+        if req.method == 'GET':
+            response = self.get_object(s3_key, **kwargs)
+        else:
+            response = self.head_object(s3_key, **kwargs)
+
+        if not response.success:
+            return response.to_wsgi()
+
+        # Previously, we did not set the x-static-large-object header.
+        # Infer whether it should be set from the ETag (MPUs have a
+        # trailing -[0-9]+ (e.g. deadbeef-5).
+        if re.match('[0-9a-z]+-\d+$', response.headers.get('etag', '')):
+            if SLO_HEADER not in response.headers:
+                response.headers[SLO_HEADER] = True
+
+        return response.to_wsgi()
+
+    def head_object(self, key, **options):
+        response = self._call_boto(
+            'head_object', Bucket=self.aws_bucket, Key=key, **options)
+        response.body = ['']
+        return response
+
+    def get_object(self, key, **options):
+        return self._call_boto(
+            'get_object', Bucket=self.aws_bucket, Key=key, **options)
+
+    def _call_boto(self, op, **args):
         with self.client_pool.get_client() as boto_client:
             s3_client = boto_client.client
-            headers_to_copy = ('Range', 'If-Match', 'If-None-Match',
-                               'If-Modified-Since', 'If-Unmodified-Since')
-            kwargs = {'Bucket': self.aws_bucket, 'Key': s3_key}
-            kwargs.update({
-                header.replace('-', ''): req.headers[header]
-                for header in headers_to_copy if header in req.headers})
             try:
-                if req.method == 'GET':
-                    resp = s3_client.get_object(**kwargs)
-                    body_iter = iter(lambda: resp['Body'].read(65536), b'')
+                resp = getattr(s3_client, op)(**args)
+                if 'Body' in resp:
+                    body = iter(lambda: resp['Body'].read(65536), b'')
                 else:
-                    resp = s3_client.head_object(**kwargs)
-                    body_iter = ['']
+                    body = ['']
+                return ProviderResponse(
+                    True, resp['ResponseMetadata']['HTTPStatusCode'],
+                    convert_to_swift_headers(
+                        resp['ResponseMetadata']['HTTPHeaders']),
+                    body)
             except botocore.exceptions.ClientError as e:
-                return (e.response['ResponseMetadata']['HTTPStatusCode'],
-                        e.response['ResponseMetadata']['HTTPHeaders'].items(),
-                        e.response['Error']['Message'])
+                return ProviderResponse(
+                    False, e.response['ResponseMetadata']['HTTPStatusCode'],
+                    convert_to_swift_headers(
+                        e.response['ResponseMetadata']['HTTPHeaders']),
+                    e.response['Error']['Message'])
             except Exception:
                 self.logger.exception('Error contacting remote s3 cluster')
-                return 502, [], ['Bad Gateway' if req.method == 'GET' else '']
-
-            headers = convert_to_swift_headers(
-                resp['ResponseMetadata']['HTTPHeaders'])
-            # Previously, we did not set the x-static-large-object header.
-            # Infer whether it should be set from the ETag (MPUs have a
-            # trailing -[0-9]+ (e.g. deadbeef-5).
-            if re.match('[0-9a-z]+-\d+$', headers.get('etag', '')):
-                if SLO_HEADER not in headers:
-                    headers[SLO_HEADER] = True
-
-            return (resp['ResponseMetadata']['HTTPStatusCode'],
-                    headers.items(),
-                    body_iter)
+                return ProviderResponse(False, 502, {}, ['Bad Gateway'])
 
     def list_objects(self, marker, limit, prefix, delimiter):
         if limit > 1000:

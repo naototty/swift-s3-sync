@@ -22,6 +22,7 @@ from swift.common.utils import FileLikeIter
 import traceback
 
 from .base_sync import BaseSync
+from .base_sync import ProviderResponse
 from .utils import (FileWrapper, check_slo, SWIFT_USER_META_PREFIX)
 
 
@@ -171,49 +172,64 @@ class SyncSwift(BaseSync):
 
         :returns: (status, headers, body_iter) tuple
         """
+        headers_to_copy = ('Range', 'If-Match', 'If-None-Match',
+                           'If-Modified-Since', 'If-Unmodified-Since')
+        headers = {header: req.headers[header]
+                   for header in headers_to_copy
+                   if header in req.headers}
+        headers['X-Trans-Id-Extra'] = req.environ['swift.trans_id']
+
+        if req.method == 'GET':
+            resp = self.get_object(
+                name, resp_chunk_size=65536, headers=headers)
+        elif req.method == 'HEAD':
+            resp = self.head_object(name, headers=headers)
+        else:
+            raise ValueError('Expected GET or HEAD, not %s' %
+                             req.method)
+        return resp.to_wsgi()
+
+    def head_object(self, key, **options):
+        resp = self._call_swiftclient(
+            'head_object', self.remote_container, key, **options)
+        resp.body = ['']
+        return resp
+
+    def get_object(self, key, **options):
+        return self._call_swiftclient(
+            'get_object', self.remote_container, key, **options)
+
+    def _call_swiftclient(self, op, container, key, **args):
+        def translate(header, value):
+            if header.lower() in ('x-trans-id', 'x-openstack-request-id'):
+                return ('Remote-' + header, value)
+            if header == 'content-length':
+                # Capitalize, so eventlet doesn't try to add its own
+                return ('Content-Length', value)
+            return (header, value)
+
         with self.client_pool.get_client() as client:
             swift_client = client.client
-            headers_to_copy = ('Range', 'If-Match', 'If-None-Match',
-                               'If-Modified-Since', 'If-Unmodified-Since')
-            headers = {header: req.headers[header]
-                       for header in headers_to_copy
-                       if header in req.headers}
-            headers['X-Trans-Id-Extra'] = req.environ['swift.trans_id']
-
-            def translate(header, value):
-                if header.lower() in ('x-trans-id', 'x-openstack-request-id'):
-                    return ('Remote-' + header, value)
-                if header == 'content-length':
-                    # Capitalize, so eventlet doesn't try to add its own
-                    return ('Content-Length', value)
-                return (header, value)
-
             try:
-                if req.method == 'GET':
-                    headers, body_iter = swift_client.get_object(
-                        self.remote_container, name, resp_chunk_size=65536,
-                        headers=headers)
-                elif req.method == 'HEAD':
-                    headers = swift_client.head_object(
-                        self.remote_container, name, headers=headers)
-                    body_iter = ['']
+                resp = getattr(swift_client, op)(container, key, **args)
+                if isinstance(resp, tuple):
+                    headers, body = resp
                 else:
-                    raise ValueError('Expected GET or HEAD, not %s' %
-                                     req.method)
-
+                    headers = resp
+                    body = ['']
                 status = 206 if 'content-range' in headers else 200
-                headers = [translate(header, value)
-                           for header, value in headers.items()]
-                return status, headers, body_iter
+                headers = dict([translate(header, value)
+                                for header, value in headers.items()])
+                return ProviderResponse(True, status, headers, body)
             except swiftclient.exceptions.ClientException as e:
-                headers = [
-                    translate(header, value)
-                    for header, value in e.http_response_headers.items()]
-                return (e.http_status, headers,
-                        [e.http_response_content])
+                headers = dict([translate(header, value)
+                                for header, value in
+                                e.http_response_headers.items()])
+                return ProviderResponse(False, e.http_status, headers,
+                                        [e.http_response_content])
             except Exception:
                 self.logger.exception('Error contacting remote swift cluster')
-                return 502, [], ['Bad Gateway' if req.method == 'GET' else '']
+                return ProviderResponse(False, 502, {}, ['Bad Gateway'])
 
     def list_objects(self, marker, limit, prefix, delimiter):
         try:
