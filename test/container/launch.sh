@@ -42,7 +42,7 @@ set -e
 
 /usr/bin/sudo -u swift PYTHONPATH=/swift-s3-sync /swift/bin/startmain
 
-PYTHONPATH=/opt/ss/lib/python2.7/dist-packages:/swift-s3-sync \
+PYTHONPATH=/swift-s3-sync \
     python -m s3_sync --log-level debug \
     --config /swift-s3-sync/test/container/swift-s3-sync.conf &
 
