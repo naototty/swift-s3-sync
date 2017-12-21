@@ -26,8 +26,8 @@ import time
 MAX_LOG_SIZE = 100 * 1024 * 1024
 
 
-def setup_logger(console=False, log_file=None, level='INFO'):
-    logger = logging.getLogger('s3-sync')
+def setup_logger(logger_name, console=False, log_file=None, level='INFO'):
+    logger = logging.getLogger(logger_name)
     logger.setLevel(level)
     formatter = logging.Formatter(
         '[%(asctime)s] %(name)s [%(levelname)s]: %(message)s')
@@ -50,8 +50,8 @@ def setup_logger(console=False, log_file=None, level='INFO'):
     logger.addHandler(handler)
 
 
-def load_swift(once=False):
-    logger = logging.getLogger('s3-sync')
+def load_swift(logger_name, once=False):
+    logger = logging.getLogger(logger_name)
 
     while True:
         try:
@@ -70,9 +70,8 @@ def load_config(conf_file):
         return json.load(f)
 
 
-def parse_args(args):
-    parser = argparse.ArgumentParser(
-        description='Swift-S3 synchronization daemon')
+def parse_args(args, description):
+    parser = argparse.ArgumentParser(description=description)
     parser.add_argument('--config', metavar='conf', type=str, required=True,
                         help='path to the configuration file')
     parser.add_argument('--once', action='store_true',
@@ -85,8 +84,9 @@ def parse_args(args):
     return parser.parse_args(args)
 
 
-def setup_context():
-    args = parse_args(sys.argv[1:])
+def setup_context(description='Swift-S3 synchronization daemon',
+                  logger_name='s3-sync'):
+    args = parse_args(sys.argv[1:], description)
     if not os.path.exists(args.config):
         print 'Configuration file does not exist'
         exit(0)
@@ -94,9 +94,9 @@ def setup_context():
     conf = load_config(args.config)
     if not args.log_level:
         args.log_level = conf.get('log_level', 'info')
-    setup_logger(console=args.console, level=args.log_level.upper(),
-                 log_file=conf.get('log_file'))
+    setup_logger(logger_name, console=args.console,
+                 level=args.log_level.upper(), log_file=conf.get('log_file'))
 
     # Swift may not be loaded when we start. Spin, waiting for it to load
-    load_swift(args.once)
+    load_swift(logger_name, args.once)
     return args, conf
