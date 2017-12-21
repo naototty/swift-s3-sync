@@ -22,8 +22,8 @@ import unittest
 
 class TestMain(unittest.TestCase):
 
-    @mock.patch('s3_sync.__main__.os.path.exists')
-    @mock.patch('s3_sync.__main__.setup_logger')
+    @mock.patch('s3_sync.daemon_utils.os.path.exists')
+    @mock.patch('s3_sync.daemon_utils.setup_logger')
     @mock.patch('s3_sync.__main__.ContainerCrawler')
     def test_log_lvl(self, crawler_mock, setup_logger_mock, exists_mock):
         exists_mock.return_value = True
@@ -46,8 +46,9 @@ class TestMain(unittest.TestCase):
             defaults = ['main', '--conf', '/sample/config']
 
             for params in test_params:
-                with mock.patch('s3_sync.__main__.load_config') as conf_mock, \
-                        mock.patch('s3_sync.__main__.sys') as sys_mock:
+                with mock.patch('s3_sync.daemon_utils.load_config') \
+                        as conf_mock, \
+                        mock.patch('s3_sync.daemon_utils.sys') as sys_mock:
                     sys_mock.argv = defaults + params['args']
 
                     conf_mock.return_value = {}
