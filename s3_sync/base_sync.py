@@ -18,6 +18,17 @@ import eventlet
 import logging
 
 
+class ProviderResponse(object):
+    def __init__(self, success, status, headers, body):
+        self.success = success
+        self.status = status
+        self.headers = headers
+        self.body = body
+
+    def to_wsgi(self):
+        return self.status, self.headers.items(), self.body
+
+
 class BaseSync(object):
     """Generic base class that each provider must implement.
 
@@ -132,6 +143,12 @@ class BaseSync(object):
         raise NotImplementedError()
 
     def shunt_object(self, request, name):
+        raise NotImplementedError()
+
+    def get_object(self, key, options={}):
+        raise NotImplementedError()
+
+    def head_object(self, key, options={}):
         raise NotImplementedError()
 
     def list_objects(self, marker, limit, prefix, delimiter):
