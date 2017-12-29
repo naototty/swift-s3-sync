@@ -587,115 +587,87 @@ class TestSyncSwift(unittest.TestCase):
         mock_swift.return_value = mock.Mock()
         # in this case, the "bucket" is actually the prefix
         aws_bucket = 'sync_'
-        sync_swift = SyncSwift(
-            {'aws_bucket': aws_bucket,
-             'aws_identity': 'identity',
-             'aws_secret': 'credential',
-             'account': 'account',
-             'container': 'container',
-             'auth_type': 'keystone_v2',
-             'aws_endpoint': 'http://swift.url/auth/v1.0'},
-            per_account=True)
-        missing_tenant_name = sync_swift._get_client_factory()
-        with self.assertRaises(Exception) as context:
-            missing_tenant_name()
+        settings = {
+            'aws_bucket': aws_bucket,
+            'aws_identity': 'identity',
+            'aws_secret': 'credential',
+            'account': 'account',
+            'container': 'container',
+            'auth_type': 'keystone_v2',
+            'aws_endpoint': 'http://swift.url/auth/v1.0'}
+        with self.assertRaises(ValueError) as context:
+            SyncSwift(settings)
         self.assertTrue(
-            'missing_v2_arguments: tenant_name' in str(context.exception))
+            'tenant_name' in str(context.exception))
 
     @mock.patch('s3_sync.sync_swift.swiftclient.client.Connection')
-    def test_keystone_v2_auth_current_withouterror(self, mock_swift):
+    def test_keystone_v2_auth(self, mock_swift):
         mock_swift.return_value = mock.Mock()
-        aws_bucket = 'sync_'
         sync_swift = SyncSwift(
-            {'aws_bucket': aws_bucket,
+            {'aws_bucket': 'container',
              'aws_identity': 'identity',
              'aws_secret': 'credential',
              'account': 'account',
              'container': 'container',
              'auth_type': 'keystone_v2',
              'tenant_name': 'tenantname',
-             'aws_endpoint': 'http://swift.url/auth/v1.0'},
-            per_account=True)
-        v2_withouterror = sync_swift._get_client_factory()
-        v2_withouterror()
+             'aws_endpoint': 'http://swift.url/auth/v1.0'})
+        sync_swift._get_client_factory()()
+        mock_swift.assert_called_once_with(
+            authurl='http://swift.url/auth/v1.0', user='identity',
+            key='credential', auth_version='2',
+            tenant_name='tenantname', retries=3)
+
+    def test_keystone_v3_auth_missing_arguments(self):
+        common_args = {
+            'aws_bucket': 'container',
+            'aws_identity': 'identity',
+            'aws_secret': 'credential',
+            'account': 'account',
+            'container': 'container',
+            'auth_type': 'keystone_v3',
+            'aws_endpoint': 'http://swift.url/auth/v1.0'}
+        tests = [
+            ({}, 'project_name, project_domain_name, user_domain_name'),
+            ({'project_name': 'project'},
+             'project_domain_name, user_domain_name'),
+            ({'project_name': 'project',
+              'project_domain_name': 'project domain'},
+             'user_domain_name'),
+            ({'user_domain_name': 'user domain'},
+             'project_name, project_domain_name')]
+        for args, error_content in tests:
+            with mock.patch(
+                    's3_sync.sync_swift.swiftclient.client.Connection'),\
+                    self.assertRaises(ValueError) as context:
+                SyncSwift(dict(common_args.items() + args.items()))
+            self.assertTrue(
+                error_content in context.exception.message)
 
     @mock.patch('s3_sync.sync_swift.swiftclient.client.Connection')
-    def test_keystone_v3_auth_missing_project_name(self, mock_swift):
+    def test_keystone_v3_auth(self, mock_swift):
         mock_swift.return_value = mock.Mock()
         aws_bucket = 'sync_'
-        sync_swift = SyncSwift(
-            {'aws_bucket': aws_bucket,
-             'aws_identity': 'identity',
-             'aws_secret': 'credential',
-             'account': 'account',
-             'container': 'container',
-             'auth_type': 'keystone_v3',
-             'user_domain_name': 'userdomainname',
-             'project_domain_name': 'projectdomainname',
-             'aws_endpoint': 'http://swift.url/auth/v1.0'},
-            per_account=True)
-        missing_project_name = sync_swift._get_client_factory()
-        with self.assertRaises(Exception) as context:
-            missing_project_name()
-        self.assertTrue(
-            'missing_v3_arguments: project_name' in str(context.exception))
-
-    @mock.patch('s3_sync.sync_swift.swiftclient.client.Connection')
-    def test_keystone_v3_auth_missing_project_domain_name(self, mock_swift):
-        aws_bucket = 'sync_'
-        sync_swift = SyncSwift(
-            {'aws_bucket': aws_bucket,
-             'aws_identity': 'identity',
-             'aws_secret': 'credential',
-             'account': 'account',
-             'container': 'container',
-             'auth_type': 'keystone_v3',
-             'project_name': 'projectname',
-             'user_domain_name': 'userdomainname',
-             'aws_endpoint': 'http://swift.url/auth/v1.0'},
-            per_account=True)
-        missing_project_domain_name = sync_swift._get_client_factory()
-        with self.assertRaises(Exception) as context:
-            missing_project_domain_name()
-        self.assertTrue(
-            'missing_v3_arguments: project_domain_name'
-            in str(context.exception))
-
-    @mock.patch('s3_sync.sync_swift.swiftclient.client.Connection')
-    def test_keystone_v3_auth_missing_user_domain_name(self, mock_swift):
-        aws_bucket = 'sync_'
-        sync_swift = SyncSwift(
-            {'aws_bucket': aws_bucket,
-             'aws_identity': 'identity',
-             'aws_secret': 'credential',
-             'account': 'account',
-             'container': 'container',
-             'auth_type': 'keystone_v3',
-             'project_name': 'projectname',
-             'project_domain_name': 'projectdomainname',
-             'aws_endpoint': 'http://swift.url/auth/v1.0'},
-            per_account=True)
-        missing_user_domain_name = sync_swift._get_client_factory()
-        with self.assertRaises(Exception) as context:
-            missing_user_domain_name()
-        self.assertTrue(
-            'missing_v3_arguments: user_domain_name' in str(context.exception))
-
-    @mock.patch('s3_sync.sync_swift.swiftclient.client.Connection')
-    def test_keystone_v3_auth_current_withouterror(self, mock_swift):
-        mock_swift.return_value = mock.Mock()
-        aws_bucket = 'sync_'
-        sync_swift = SyncSwift(
-            {'aws_bucket': aws_bucket,
-             'aws_identity': 'identity',
-             'aws_secret': 'credential',
-             'account': 'account',
-             'container': 'container',
-             'auth_type': 'keystone_v3',
-             'user_domain_name': 'userdomainname',
-             'project_name': 'projectname',
-             'project_domain_name': 'projectdomainname',
-             'aws_endpoint': 'http://swift.url/auth/v1.0'},
-            per_account=True)
-        v3_withouterror = sync_swift._get_client_factory()
-        v3_withouterror()
+        settings = {
+            'aws_bucket': aws_bucket,
+            'aws_identity': 'identity',
+            'aws_secret': 'credential',
+            'account': 'account',
+            'container': 'container',
+            'auth_type': 'keystone_v3',
+            'user_domain_name': 'userdomainname',
+            'project_name': 'projectname',
+            'project_domain_name': 'projectdomainname',
+            'aws_endpoint': 'http://swift.url/auth/v1.0'}
+        sync_swift = SyncSwift(settings)
+        sync_swift._get_client_factory()()
+        mock_swift.assert_called_once_with(
+            authurl=settings['aws_endpoint'],
+            user=settings['aws_identity'],
+            key=settings['aws_secret'],
+            auth_version='3',
+            retries=3,
+            os_options=dict(
+                project_name=settings['project_name'],
+                project_domain_name=settings['project_domain_name'],
+                user_domain_name=settings['user_domain_name']))

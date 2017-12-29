@@ -55,26 +55,28 @@ class SyncSwift(BaseSync):
                              'retries': 3}
         # default: swift, options: keystone_v2 and keystone_v3
         _authtype = self.settings.get('auth_type', 'swift')
+        if _authtype == 'keystone_v2':
+            if 'tenant_name' not in self.settings:
+                raise ValueError(
+                    'Missing tenant_name for keystone v2')
+            connection_kwargs['tenant_name'] =\
+                self.settings['tenant_name']
+            connection_kwargs['auth_version'] = '2'
+        elif _authtype == 'keystone_v3':
+            _os_auth_fields = ['project_name',
+                               'project_domain_name',
+                               'user_domain_name']
+            missing_fields = [field for field in _os_auth_fields
+                              if field not in self.settings]
+            if missing_fields:
+                raise ValueError(
+                    'Missing %s for keystone v3' %
+                    ', '.join(missing_fields))
+            connection_kwargs['os_options'] = dict(
+                [(field, self.settings[field]) for field in _os_auth_fields])
+            connection_kwargs['auth_version'] = '3'
 
         def swift_client_factory():
-            if _authtype == 'keystone_v2':
-                try:
-                    _tenant_name = self.settings['tenant_name']
-                except Exception as e:
-                    raise Exception('missing_v2_arguments: ' + e.message)
-                connection_kwargs['tenant_name'] = _tenant_name
-                connection_kwargs['auth_version'] = '2'
-            elif _authtype == 'keystone_v3':
-                try:
-                    _os_auth_fields = ['project_name',
-                                       'project_domain_name',
-                                       'user_domain_name']
-                    _os_options = dict([(field, self.settings[field])
-                                        for field in _os_auth_fields])
-                except Exception as e:
-                    raise Exception('missing_v3_arguments: ' + e.message)
-                connection_kwargs['os_options'] = _os_options
-                connection_kwargs['auth_version'] = '3'
             return swiftclient.client.Connection(**connection_kwargs)
         return swift_client_factory
 
