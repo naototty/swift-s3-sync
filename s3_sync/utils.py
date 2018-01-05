@@ -439,6 +439,12 @@ class ClosingResourceIterable(object):
             self.exhausted = True
             raise
 
+    def close(self):
+        if not self.exhausted:
+            self.close_data()
+        if not self.closed:
+            self.resource.close()
+
     def __next__(self):
         return self.next()
 
@@ -451,10 +457,7 @@ class ClosingResourceIterable(object):
             the pool, and the content is not consumed. We handle this in the
             destructor.
         """
-        if not self.exhausted:
-            self.close_data()
-        if not self.closed:
-            self.resource.close()
+        self.close()
 
 
 def convert_to_s3_headers(swift_headers):

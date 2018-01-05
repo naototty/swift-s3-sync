@@ -16,7 +16,8 @@ setup(name='swift-s3-sync',
       install_requires=['boto3==1.3.1'],
       entry_points={
           'console_scripts': [
-              'swift-s3-sync = s3_sync.__main__:main'
+              'swift-s3-sync = s3_sync.__main__:main',
+              'swift-s3-migrator = s3_sync.migrator:main'
           ],
           'paste.filter_factory': [
               'cloud-shunt = s3_sync.shunt:filter_factory'
