@@ -443,6 +443,12 @@ class ClosingResourceIterable(object):
             self.exhausted = True
             raise
 
+    def close(self):
+        if not self.exhausted:
+            self.close_data()
+        if not self.closed:
+            self.resource.close()
+
     def __next__(self):
         return self.next()
 
@@ -455,10 +461,7 @@ class ClosingResourceIterable(object):
             the pool, and the content is not consumed. We handle this in the
             destructor.
         """
-        if not self.exhausted:
-            self.close_data()
-        if not self.closed:
-            self.resource.close()
+        self.close()
 
 
 def convert_to_s3_headers(swift_headers):
@@ -496,7 +499,7 @@ def convert_to_swift_headers(s3_headers):
     return swift_headers
 
 
-def convert_to_local_headers(headers):
+def convert_to_local_headers(headers, remove_timestamp=True):
     put_headers = dict([(k, v) for k, v in headers
                         if not k.startswith('Remote-')])
     if 'etag' in put_headers:
@@ -506,7 +509,7 @@ def convert_to_local_headers(headers):
     # never be restored if a tombstone is present (as the remote
     # timestamp may be older than then tombstone). Only happens if
     # restoring from Swift.
-    if 'x-timestamp' in put_headers:
+    if 'x-timestamp' in put_headers and remove_timestamp:
         del put_headers['x-timestamp']
     return put_headers
 

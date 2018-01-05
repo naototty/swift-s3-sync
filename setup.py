@@ -18,6 +18,7 @@ setup(name='swift-s3-sync',
           'console_scripts': [
               'swift-s3-sync = s3_sync.__main__:main',
               'swift-s3-verify = s3_sync.verify:main',
+              'swift-s3-migrator = s3_sync.migrator:main'
           ],
           'paste.filter_factory': [
               'cloud-shunt = s3_sync.shunt:filter_factory',

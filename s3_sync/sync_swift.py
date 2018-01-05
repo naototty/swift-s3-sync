@@ -253,7 +253,7 @@ class SyncSwift(BaseSync):
                 self.logger.exception('Error contacting remote swift cluster')
                 return ProviderResponse(False, 502, {}, iter('Bad Gateway'))
 
-        if op == 'get_object':
+        if op == 'get_object' and 'resp_chunk_size' in args:
             client = self.client_pool.get_client()
             resp = _perform_op(client.client)
             if resp.success:

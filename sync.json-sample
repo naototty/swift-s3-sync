@@ -13,6 +13,13 @@
             "retain_local": false
         }
     ],
+    "migrator_config": {
+        "workers": 10,
+        "node_id": 0,
+        "nodes": 1,
+        "items_chunk": 1000,
+        "status_file": "/var/lib/swift-s3-migrator/migrator.status"
+    },
     "devices": "/srv/node",
     "items_chunk": 1000,
     "log_file": "/var/log/swift-s3-sync.log",
