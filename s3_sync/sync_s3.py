@@ -255,7 +255,7 @@ class SyncS3(BaseSync):
                 s3_client = boto_client.client
                 return _perform_op(s3_client)
 
-    def list_objects(self, marker, limit, prefix, delimiter):
+    def list_objects(self, marker, limit, prefix, delimiter=None):
         if limit > 1000:
             limit = 1000
         args = dict(Bucket=self.aws_bucket)

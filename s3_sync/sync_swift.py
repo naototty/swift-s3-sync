@@ -246,7 +246,7 @@ class SyncSwift(BaseSync):
                 swift_client = client.client
                 return _perform_op(swift_client)
 
-    def list_objects(self, marker, limit, prefix, delimiter):
+    def list_objects(self, marker, limit, prefix, delimiter=None):
         try:
             with self.client_pool.get_client() as client:
                 swift_client = client.client
