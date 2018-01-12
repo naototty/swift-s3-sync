@@ -157,7 +157,7 @@ class BaseSync(object):
     def head_object(self, key, options={}):
         raise NotImplementedError()
 
-    def list_objects(self, marker, limit, prefix, delimiter):
+    def list_objects(self, marker, limit, prefix, delimiter=None):
         raise NotImplementedError()
 
     def _get_client_factory(self):
