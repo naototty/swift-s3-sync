@@ -67,9 +67,8 @@ class SyncSwift(BaseSync):
 
     def upload_object(self, name, policy, internal_client):
         if self._per_account and not self.verified_container:
-            with self.client_pool.get_client() as client:
+            with self.client_pool.get_client() as swift_client:
                 try:
-                    swift_client = client.client
                     swift_client.head_container(self.remote_container)
                 except swiftclient.exceptions.ClientException as e:
                     if e.http_status != 404:
@@ -78,8 +77,7 @@ class SyncSwift(BaseSync):
             self.verified_container = True
 
         try:
-            with self.client_pool.get_client() as client:
-                swift_client = client.client
+            with self.client_pool.get_client() as swift_client:
                 remote_meta = swift_client.head_object(self.remote_container,
                                                        name)
         except swiftclient.exceptions.ClientException as e:
@@ -104,8 +102,7 @@ class SyncSwift(BaseSync):
         if check_slo(metadata):
             try:
                 # fetch the remote etag
-                with self.client_pool.get_client() as client:
-                    swift_client = client.client
+                with self.client_pool.get_client() as swift_client:
                     # This relies on the fact that getting the manifest results
                     # in the etag being the md5 of the JSON. The internal
                     # client pipeline does not have SLO and also returns the
@@ -129,7 +126,7 @@ class SyncSwift(BaseSync):
                 self.update_metadata(name, metadata)
             return
 
-        with self.client_pool.get_client() as client:
+        with self.client_pool.get_client() as swift_client:
             wrapper_stream = FileWrapper(internal_client,
                                          self.account,
                                          self.container,
@@ -139,7 +136,6 @@ class SyncSwift(BaseSync):
             self.logger.debug('Uploading %s with meta: %r' % (
                 name, headers))
 
-            swift_client = client.client
             swift_client.put_object(self.remote_container,
                                     name,
                                     wrapper_stream,
@@ -154,8 +150,7 @@ class SyncSwift(BaseSync):
         remote store may have SLO manifests, as well. Because of that, this
         turns into HEAD+DELETE.
         """
-        with self.client_pool.get_client() as client:
-            swift_client = client.client
+        with self.client_pool.get_client() as swift_client:
             try:
                 headers = swift_client.head_object(self.remote_container, name)
             except swiftclient.exceptions.ClientException as e:
@@ -264,24 +259,22 @@ class SyncSwift(BaseSync):
                 return ProviderResponse(False, 502, {}, iter('Bad Gateway'))
 
         if op == 'get_object' and 'resp_chunk_size' in args:
-            client = self.client_pool.get_client()
-            resp = _perform_op(client.client)
+            entry = self.client_pool.get_client()
+            resp = _perform_op(entry.client)
             if resp.success:
                 resp.body = ClosingResourceIterable(
-                    client, resp.body, resp.body.resp.close)
+                    entry, resp.body, resp.body.resp.close)
             else:
                 resp.body = ClosingResourceIterable(
-                    client, resp.body, lambda: None)
+                    entry, resp.body, lambda: None)
             return resp
         else:
-            with self.client_pool.get_client() as client:
-                swift_client = client.client
+            with self.client_pool.get_client() as swift_client:
                 return _perform_op(swift_client)
 
     def list_objects(self, marker, limit, prefix, delimiter=None):
         try:
-            with self.client_pool.get_client() as client:
-                swift_client = client.client
+            with self.client_pool.get_client() as swift_client:
                 hdrs, results = swift_client.get_container(
                     self.remote_container, marker=marker, limit=limit,
                     prefix=prefix, delimiter=delimiter)
@@ -295,8 +288,7 @@ class SyncSwift(BaseSync):
             return (e.http_status, e.message)
 
     def update_metadata(self, name, metadata):
-        with self.client_pool.get_client() as client:
-            swift_client = client.client
+        with self.client_pool.get_client() as swift_client:
             swift_client.post_object(self.remote_container, name,
                                      self._get_user_headers(metadata))
 
@@ -343,8 +335,7 @@ class SyncSwift(BaseSync):
 
         self.logger.debug(json.dumps(new_manifest))
         # Upload the manifest itself
-        with self.client_pool.get_client() as client:
-            swift_client = client.client
+        with self.client_pool.get_client() as swift_client:
             swift_client.put_object(self.remote_container, name,
                                     json.dumps(new_manifest),
                                     headers=self._get_user_headers(headers),
@@ -353,9 +344,9 @@ class SyncSwift(BaseSync):
     def get_manifest(self, key, bucket=None):
         if bucket is None:
             bucket = self.remote_container
-        with self.client_pool.get_client() as client:
+        with self.client_pool.get_client() as swift_client:
             try:
-                headers, body = client.client.get_object(
+                headers, body = swift_client.get_object(
                     bucket, key,
                     query_string='multipart-manifest=get')
                 if 'x-static-large-object' not in headers:
@@ -385,12 +376,11 @@ class SyncSwift(BaseSync):
     def _upload_segment(self, segment, req_headers, internal_client):
         container, obj = segment['name'].split('/', 2)[1:]
         dest_container = self.remote_container + '_segments'
-        with self.client_pool.get_client() as client:
+        with self.client_pool.get_client() as swift_client:
             wrapper = FileWrapper(internal_client, self.account, container,
                                   obj, req_headers)
             self.logger.debug('Uploading segment %s: %s bytes' % (
                 self.account + segment['name'], segment['bytes']))
-            swift_client = client.client
             try:
                 swift_client.put_object(dest_container, obj, wrapper,
                                         etag=segment['hash'],
