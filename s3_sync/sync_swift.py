@@ -23,7 +23,8 @@ import traceback
 
 from .base_sync import BaseSync
 from .base_sync import ProviderResponse
-from .utils import (FileWrapper, check_slo, SWIFT_USER_META_PREFIX)
+from .utils import (FileWrapper, ClosingResourceIterable, check_slo,
+                    SWIFT_USER_META_PREFIX)
 
 
 class SyncSwift(BaseSync):
@@ -208,10 +209,9 @@ class SyncSwift(BaseSync):
                 return ('Content-Length', value)
             return (header, value)
 
-        with self.client_pool.get_client() as client:
-            swift_client = client.client
+        def _perform_op(client):
             try:
-                resp = getattr(swift_client, op)(container, key, **args)
+                resp = getattr(client, op)(container, key, **args)
                 if isinstance(resp, tuple):
                     headers, body = resp
                 else:
@@ -226,10 +226,25 @@ class SyncSwift(BaseSync):
                                 for header, value in
                                 e.http_response_headers.items()])
                 return ProviderResponse(False, e.http_status, headers,
-                                        [e.http_response_content])
+                                        iter(e.http_response_content))
             except Exception:
                 self.logger.exception('Error contacting remote swift cluster')
-                return ProviderResponse(False, 502, {}, ['Bad Gateway'])
+                return ProviderResponse(False, 502, {}, iter('Bad Gateway'))
+
+        if op == 'get_object':
+            client = self.client_pool.get_client()
+            resp = _perform_op(client.client)
+            if resp.success:
+                resp.body = ClosingResourceIterable(
+                    client, resp.body, resp.body.resp.close)
+            else:
+                resp.body = ClosingResourceIterable(
+                    client, resp.body, lambda: None)
+            return resp
+        else:
+            with self.client_pool.get_client() as client:
+                swift_client = client.client
+                return _perform_op(swift_client)
 
     def list_objects(self, marker, limit, prefix, delimiter):
         try:

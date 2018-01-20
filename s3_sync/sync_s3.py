@@ -31,8 +31,8 @@ from .base_sync import BaseSync
 from .base_sync import ProviderResponse
 from .utils import (
     convert_to_s3_headers, convert_to_swift_headers, FileWrapper,
-    SLOFileWrapper, get_slo_etag, check_slo, SLO_ETAG_FIELD, SLO_HEADER,
-    SWIFT_USER_META_PREFIX)
+    SLOFileWrapper, ClosingResourceIterable, get_slo_etag, check_slo,
+    SLO_ETAG_FIELD, SLO_HEADER, SWIFT_USER_META_PREFIX)
 
 
 class SyncS3(BaseSync):
@@ -219,14 +219,10 @@ class SyncS3(BaseSync):
             'get_object', Bucket=self.aws_bucket, Key=key, **options)
 
     def _call_boto(self, op, **args):
-        with self.client_pool.get_client() as boto_client:
-            s3_client = boto_client.client
+        def _perform_op(s3_client):
             try:
                 resp = getattr(s3_client, op)(**args)
-                if 'Body' in resp:
-                    body = iter(lambda: resp['Body'].read(65536), b'')
-                else:
-                    body = ['']
+                body = resp.get('Body', [''])
                 return ProviderResponse(
                     True, resp['ResponseMetadata']['HTTPStatusCode'],
                     convert_to_swift_headers(
@@ -237,10 +233,27 @@ class SyncS3(BaseSync):
                     False, e.response['ResponseMetadata']['HTTPStatusCode'],
                     convert_to_swift_headers(
                         e.response['ResponseMetadata']['HTTPHeaders']),
-                    e.response['Error']['Message'])
+                    iter(e.response['Error']['Message']))
             except Exception:
                 self.logger.exception('Error contacting remote s3 cluster')
-                return ProviderResponse(False, 502, {}, ['Bad Gateway'])
+                return ProviderResponse(False, 502, {}, iter('Bad Gateway'))
+
+        if op == 'get_object':
+            entry = self.client_pool.get_client()
+            resp = _perform_op(entry.client)
+            if resp.success:
+                resp.body = ClosingResourceIterable(
+                    entry,
+                    resp.body,
+                    length=int(resp.headers['Content-Length']))
+            else:
+                resp.body = ClosingResourceIterable(
+                    entry, resp.body, lambda: None)
+            return resp
+        else:
+            with self.client_pool.get_client() as boto_client:
+                s3_client = boto_client.client
+                return _perform_op(s3_client)
 
     def list_objects(self, marker, limit, prefix, delimiter):
         if limit > 1000:

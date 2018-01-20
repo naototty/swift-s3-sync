@@ -382,6 +382,80 @@ class SwiftSloPutWrapper(SwiftPutWrapper):
         return chunk
 
 
+class ClosingResourceIterable(object):
+    """
+        Wrapper to ensure the resource is returned back to the pool after the
+        data is consumed.
+    """
+    def __init__(self, resource, data_src, close_callable=None,
+                 read_chunk=65536, length=None):
+        self.closed = False
+        self.exhausted = False
+        self.data_src = data_src
+        self.read_chunk = read_chunk
+        self.resource = resource
+        self.length = length
+        self.amt_read = 0
+
+        if close_callable:
+            self.close_data = close_callable
+        elif hasattr(self.data_src, 'close'):
+            self.close_data = self.data_src.close
+        else:
+            raise ValueError('No closeable to close the data source defined')
+
+        try:
+            iter(self.data_src)
+            self.iterable = True
+        except TypeError:
+            self.iterable = False
+
+        if not self.iterable and not hasattr(self.data_src, 'read'):
+            raise TypeError('Cannot iterate over the data source')
+        if not self.iterable and length is None:
+            raise ValueError('Must supply length with non-iterable objects')
+
+    def next(self):
+        if self.closed:
+            raise ValueError()
+        try:
+            if self.iterable:
+                return next(self.data_src)
+            else:
+                if self.amt_read == self.length:
+                    raise StopIteration
+                ret = self.data_src.read(self.read_chunk)
+                self.amt_read += len(ret)
+                if not ret:
+                    raise StopIteration
+                return ret
+        except Exception as e:
+            if type(e) != StopIteration:
+                # Likely, a partial read
+                self.close_data()
+            self.closed = True
+            self.resource.close()
+            self.exhausted = True
+            raise
+
+    def __next__(self):
+        return self.next()
+
+    def __iter__(self):
+        return self
+
+    def __del__(self):
+        """
+            There could be an exception raised, the resource is not put back in
+            the pool, and the content is not consumed. We handle this in the
+            destructor.
+        """
+        if not self.exhausted:
+            self.close_data()
+        if not self.closed:
+            self.resource.close()
+
+
 def convert_to_s3_headers(swift_headers):
     s3_headers = {}
     for hdr in swift_headers.keys():
