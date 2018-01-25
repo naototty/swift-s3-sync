@@ -189,34 +189,40 @@ class TestCloudSync(TestCloudSyncBase):
                                expected_location)
 
     def test_s3_archive_get(self):
-        content = 's3 archive and get'
-        key = 'test_s3_archive'
-        s3_mapping = self.s3_restore_mapping()
-        s3_key = s3_key_name(s3_mapping, key)
-        self.s3('put_object',
-                Bucket=s3_mapping['aws_bucket'],
-                Key=s3_key,
-                Body=StringIO.StringIO(content))
+        tests = [{'content': 's3 archive and get',
+                  'key': 'test_s3_archive'},
+                 {'content': '',
+                  'key': 'test-empty'}]
 
-        hdrs = self.local_swift(
-            'head_object', s3_mapping['container'], key)
-        self.assertIn('server', hdrs)
-        self.assertTrue(hdrs['server'].startswith('Jetty'))
+        for test in tests:
+            content = test['content']
+            key = test['key']
+            s3_mapping = self.s3_restore_mapping()
+            s3_key = s3_key_name(s3_mapping, key)
+            self.s3('put_object',
+                    Bucket=s3_mapping['aws_bucket'],
+                    Key=s3_key,
+                    Body=StringIO.StringIO(content))
 
-        hdrs, body = self.local_swift(
-            'get_object', s3_mapping['container'], key, content)
-        self.assertEqual(hashlib.md5(content).hexdigest(), hdrs['etag'])
-        swift_content = ''.join([chunk for chunk in body])
-        self.assertEqual(content, swift_content)
-        # There should be a "server" header, set to Jetty for S3Proxy
-        self.assertEqual('Jetty(9.2.z-SNAPSHOT)', hdrs['server'])
+            hdrs = self.local_swift(
+                'head_object', s3_mapping['container'], key)
+            self.assertIn('server', hdrs)
+            self.assertTrue(hdrs['server'].startswith('Jetty'))
 
-        # the subsequent request should come back from Swift
-        hdrs, body = self.local_swift(
-            'get_object', s3_mapping['container'], key)
-        swift_content = ''.join([chunk for chunk in body])
-        self.assertEqual(content, swift_content)
-        self.assertEqual(False, 'server' in hdrs)
+            hdrs, body = self.local_swift(
+                'get_object', s3_mapping['container'], key, content)
+            self.assertEqual(hashlib.md5(content).hexdigest(), hdrs['etag'])
+            swift_content = ''.join([chunk for chunk in body])
+            self.assertEqual(content, swift_content)
+            # There should be a "server" header, set to Jetty for S3Proxy
+            self.assertEqual('Jetty(9.2.z-SNAPSHOT)', hdrs['server'])
+
+            # the subsequent request should come back from Swift
+            hdrs, body = self.local_swift(
+                'get_object', s3_mapping['container'], key)
+            swift_content = ''.join([chunk for chunk in body])
+            self.assertEqual(content, swift_content)
+            self.assertEqual(False, 'server' in hdrs)
         clear_s3_bucket(self.s3_client, s3_mapping['aws_bucket'])
         clear_swift_container(self.swift_src, s3_mapping['container'])
 
