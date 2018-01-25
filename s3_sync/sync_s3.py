@@ -128,7 +128,7 @@ class SyncS3(BaseSync):
             if self.is_object_meta_synced(s3_meta, metadata):
                 return
             elif not self.in_glacier(s3_meta):
-                self.update_metadata(metadata, s3_key)
+                self.update_metadata(swift_key, metadata)
                 return
 
         with self.client_pool.get_client() as boto_client:
@@ -331,7 +331,7 @@ class SyncS3(BaseSync):
                 if slo_etag == headers['etag']:
                     if self.is_object_meta_synced(s3_meta, headers):
                         return
-                    self.update_metadata(headers, s3_key)
+                    self.update_metadata(swift_key, headers)
                     return
             self._upload_google_slo(manifest, headers, s3_key, swift_req_hdrs,
                                     internal_client)
@@ -597,7 +597,8 @@ class SyncS3(BaseSync):
                 },
                 UploadId=multipart_resp['UploadId'])
 
-    def update_metadata(self, swift_meta, s3_key):
+    def update_metadata(self, swift_key, swift_meta):
+        s3_key = self.get_s3_name(swift_key)
         self.logger.debug('Updating metadata for %s to %r' % (
             s3_key, convert_to_s3_headers(swift_meta)))
         with self.client_pool.get_client() as boto_client:

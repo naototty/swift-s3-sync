@@ -105,7 +105,7 @@ class SyncSwift(BaseSync):
                         headers={'Range': 'bytes=0-0'})
                 if headers['etag'] == metadata['etag']:
                     if not self._is_meta_synced(metadata, headers):
-                        self._update_metadata(name, metadata)
+                        self.update_metadata(name, metadata)
                     return
             except swiftclient.exceptions.ClientException as e:
                 if e.http_status != 404:
@@ -115,7 +115,7 @@ class SyncSwift(BaseSync):
 
         if remote_meta and metadata['etag'] == remote_meta['etag']:
             if not self._is_meta_synced(metadata, remote_meta):
-                self._update_metadata(name, metadata)
+                self.update_metadata(name, metadata)
             return
 
         with self.client_pool.get_client() as client:
@@ -247,7 +247,7 @@ class SyncSwift(BaseSync):
         except swiftclient.exceptions.ClientException as e:
             return (e.http_status, e.message)
 
-    def _update_metadata(self, name, metadata):
+    def update_metadata(self, name, metadata):
         with self.client_pool.get_client() as client:
             swift_client = client.client
             swift_client.post_object(self.remote_container, name,

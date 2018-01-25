@@ -47,9 +47,13 @@ class FileWrapper(object):
             headers=self.swift_req_hdrs)
         if status != 200:
             raise RuntimeError('Failed to get the object')
+        self._bytes_read = 0
         self._swift_stream = body
         self._iter = FileLikeIter(body)
         self._s3_headers = convert_to_s3_headers(self._headers)
+
+    def tell(self):
+        return self._bytes_read
 
     def seek(self, pos, flag=0):
         if pos != 0:
