@@ -26,7 +26,8 @@ except ImportError:
     from swift.common.request_helpers import get_listing_content_type
 
 from .provider_factory import create_provider
-from .utils import check_slo, SwiftPutWrapper, SwiftSloPutWrapper
+from .utils import (check_slo, SwiftPutWrapper, SwiftSloPutWrapper,
+                    convert_to_local_headers)
 
 
 class S3SyncShunt(object):
@@ -202,17 +203,7 @@ class S3SyncShunt(object):
             manifest = provider.get_manifest(obj)
             self.logger.debug("Manifest: %s" % manifest)
             status_code, headers, app_iter = provider.shunt_object(req, obj)
-            put_headers = dict([(k, v) for k, v in headers
-                                if not k.startswith('Remote-')])
-            if 'etag' in put_headers:
-                put_headers['Content-MD5'] = put_headers['etag']
-                del put_headers['etag']
-            # We must remove the X-Timestamp header, as otherwise objects may
-            # never be restored if a tombstone is present (as the remote
-            # timestamp may be older than then tombstone). Only happens if
-            # restoring from Swift.
-            if 'x-timestamp' in put_headers:
-                del put_headers['x-timestamp']
+            put_headers = convert_to_local_headers(headers)
 
             if status_code == 200:
                 if check_slo(put_headers) and manifest:

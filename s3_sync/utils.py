@@ -492,6 +492,21 @@ def convert_to_swift_headers(s3_headers):
     return swift_headers
 
 
+def convert_to_local_headers(headers):
+    put_headers = dict([(k, v) for k, v in headers
+                        if not k.startswith('Remote-')])
+    if 'etag' in put_headers:
+        put_headers['Content-MD5'] = put_headers['etag']
+        del put_headers['etag']
+    # We must remove the X-Timestamp header, as otherwise objects may
+    # never be restored if a tombstone is present (as the remote
+    # timestamp may be older than then tombstone). Only happens if
+    # restoring from Swift.
+    if 'x-timestamp' in put_headers:
+        del put_headers['x-timestamp']
+    return put_headers
+
+
 def get_slo_etag(manifest):
     etags = [segment['hash'].decode('hex') for segment in manifest]
     md5_hash = hashlib.md5()
