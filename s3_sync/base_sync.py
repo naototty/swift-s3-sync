@@ -160,6 +160,9 @@ class BaseSync(object):
     def list_objects(self, marker, limit, prefix, delimiter=None):
         raise NotImplementedError()
 
+    def list_buckets(self):
+        raise NotImplementedError()
+
     def _get_client_factory(self):
         raise NotImplementedError()
 
