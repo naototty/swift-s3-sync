@@ -29,6 +29,7 @@ S3_USER_META_PREFIX = 'x-amz-meta-'
 MANIFEST_HEADER = 'x-object-manifest'
 SLO_HEADER = 'x-static-large-object'
 SLO_ETAG_FIELD = 'swift-slo-etag'
+SWIFT_TIME_FMT = '%Y-%m-%dT%H:%M:%S.%f'
 
 
 class FileWrapper(object):

@@ -14,6 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 """
 
+import datetime
 import eventlet
 import json
 import swiftclient
@@ -24,7 +25,7 @@ import traceback
 from .base_sync import BaseSync
 from .base_sync import ProviderResponse
 from .utils import (FileWrapper, ClosingResourceIterable, check_slo,
-                    SWIFT_USER_META_PREFIX)
+                    SWIFT_USER_META_PREFIX, SWIFT_TIME_FMT)
 
 
 class SyncSwift(BaseSync):
@@ -203,6 +204,13 @@ class SyncSwift(BaseSync):
         return self._call_swiftclient(
             'get_object', self.remote_container, key, **options)
 
+    def list_buckets(self):
+        resp = self._call_swiftclient('get_account', None, None).body
+        for container in resp:
+            container['last_modified'] = datetime.datetime.strptime(
+                container['last_modified'], SWIFT_TIME_FMT)
+        return resp
+
     def _call_swiftclient(self, op, container, key, **args):
         def translate(header, value):
             if header.lower() in ('x-trans-id', 'x-openstack-request-id'):
@@ -214,7 +222,12 @@ class SyncSwift(BaseSync):
 
         def _perform_op(client):
             try:
-                resp = getattr(client, op)(container, key, **args)
+                if not container:
+                    resp = getattr(client, op)(**args)
+                elif container and not key:
+                    resp = getattr(client, op)(container, **args)
+                else:
+                    resp = getattr(client, op)(container, key, **args)
                 if isinstance(resp, tuple):
                     headers, body = resp
                 else:
