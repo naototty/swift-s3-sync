@@ -214,7 +214,10 @@ class SyncS3(BaseSync):
         response.body = ['']
         return response
 
-    def get_object(self, key, **options):
+    def get_object(self, key, container=None, **options):
+        if container is not None:
+            return self._call_boto(
+                'get_object', Bucket=container, Key=key, **options)
         return self._call_boto(
             'get_object', Bucket=self.aws_bucket, Key=key, **options)
 

@@ -196,7 +196,10 @@ class SyncSwift(BaseSync):
         resp.body = ['']
         return resp
 
-    def get_object(self, key, **options):
+    def get_object(self, key, container=None, **options):
+        if container is not None:
+            return self._call_swiftclient(
+                'get_object', container, key, **options)
         return self._call_swiftclient(
             'get_object', self.remote_container, key, **options)
 
