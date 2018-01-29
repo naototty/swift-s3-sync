@@ -151,7 +151,7 @@ class BaseSync(object):
     def shunt_object(self, request, name):
         raise NotImplementedError()
 
-    def get_object(self, key, options={}):
+    def get_object(self, key, bucket=None, options={}):
         raise NotImplementedError()
 
     def head_object(self, key, options={}):

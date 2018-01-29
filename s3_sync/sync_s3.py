@@ -214,9 +214,11 @@ class SyncS3(BaseSync):
         response.body = ['']
         return response
 
-    def get_object(self, key, **options):
+    def get_object(self, key, bucket=None, **options):
+        if bucket is None:
+            bucket = self.aws_bucket
         return self._call_boto(
-            'get_object', Bucket=self.aws_bucket, Key=key, **options)
+            'get_object', Bucket=bucket, Key=key, **options)
 
     def _call_boto(self, op, **args):
         def _perform_op(s3_client):

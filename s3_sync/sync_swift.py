@@ -196,9 +196,11 @@ class SyncSwift(BaseSync):
         resp.body = ['']
         return resp
 
-    def get_object(self, key, **options):
+    def get_object(self, key, bucket=None, **options):
+        if bucket is None:
+            bucket = self.remote_container
         return self._call_swiftclient(
-            'get_object', self.remote_container, key, **options)
+            'get_object', bucket, key, **options)
 
     def _call_swiftclient(self, op, container, key, **args):
         def translate(header, value):
