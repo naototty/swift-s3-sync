@@ -222,6 +222,11 @@ class SyncS3(BaseSync):
         return self._call_boto(
             'get_object', Bucket=bucket, Key=key, **options)
 
+    def head_bucket(self, bucket=None, **options):
+        if not bucket:
+            bucket = self.aws_bucket
+        return self._call_boto('head_bucket', bucket, None, **options)
+
     def list_buckets(self):
         resp = self._call_boto('list_buckets').body['Buckets']
         return [{'last_modified': bucket['CreationDate'],

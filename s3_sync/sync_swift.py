@@ -204,6 +204,12 @@ class SyncSwift(BaseSync):
         return self._call_swiftclient(
             'get_object', bucket, key, **options)
 
+    def head_bucket(self, bucket=None, **options):
+        if bucket is None:
+            bucket = self.remote_container
+        return self._call_swiftclient(
+            'head_container', bucket, None, **options)
+
     def list_buckets(self):
         resp = self._call_swiftclient('get_account', None, None).body
         for container in resp:
