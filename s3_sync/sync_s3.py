@@ -228,11 +228,13 @@ class SyncS3(BaseSync):
         return self._call_boto('head_bucket', bucket, None, **options)
 
     def list_buckets(self):
-        resp = self._call_boto('list_buckets').body['Buckets']
-        return [{'last_modified': bucket['CreationDate'],
-                 'count': 0,
-                 'bytes': 0,
-                 'name': bucket['Name']} for bucket in resp]
+        resp = self._call_boto('list_buckets')
+        resp.body = [
+            {'last_modified': bucket['CreationDate'],
+             'count': 0,
+             'bytes': 0,
+             'name': bucket['Name']} for bucket in resp.body['Buckets']]
+        return resp
 
     def _call_boto(self, op, **args):
         def _perform_op(s3_client):

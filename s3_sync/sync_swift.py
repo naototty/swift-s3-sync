@@ -211,10 +211,11 @@ class SyncSwift(BaseSync):
             'head_container', bucket, None, **options)
 
     def list_buckets(self):
-        resp = self._call_swiftclient('get_account', None, None).body
-        for container in resp:
-            container['last_modified'] = datetime.datetime.strptime(
-                container['last_modified'], SWIFT_TIME_FMT)
+        resp = self._call_swiftclient('get_account', None, None)
+        if resp.status == 200:
+            for container in resp:
+                container['last_modified'] = datetime.datetime.strptime(
+                    container['last_modified'], SWIFT_TIME_FMT)
         return resp
 
     def _call_swiftclient(self, op, container, key, **args):
