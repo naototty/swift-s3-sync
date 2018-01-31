@@ -52,10 +52,10 @@ class SyncSwift(BaseSync):
         # auth URL
         endpoint = self.settings['aws_endpoint']
         os_options = {}
-        if self.settings.get('storage_account'):
+        if self.settings.get('remote_account'):
             scheme, rest = endpoint.split(':', 1)
             host = urllib.splithost(rest)[0]
-            path = '/v1/%s' % urllib.quote(self.settings['storage_account'])
+            path = '/v1/%s' % urllib.quote(self.settings['remote_account'])
             os_options = {
                 'object_storage_url': '%s:%s%s' % (scheme, host, path)}
 
