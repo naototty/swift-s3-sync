@@ -53,12 +53,15 @@ class BaseSync(object):
         def acquire(self):
             return self.semaphore.acquire(blocking=False)
 
+        def close(self):
+            self.semaphore.release()
+            self.pool.release()
+
         def __enter__(self):
             return self
 
         def __exit__(self, exc_type, exc_value, traceback):
-            self.semaphore.release()
-            self.pool.release()
+            self.close()
 
     class HttpClientPool(object):
         def __init__(self, client_factory, max_conns):
@@ -94,6 +97,9 @@ class BaseSync(object):
 
         def release(self):
             self.get_semaphore.release()
+
+        def free_count(self):
+            return self.get_semaphore.balance
 
     def __init__(self, settings, max_conns=10, per_account=False):
         """Base class that every Cloud Sync provider implementation should

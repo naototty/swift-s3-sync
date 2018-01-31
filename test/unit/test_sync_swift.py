@@ -26,17 +26,42 @@ import unittest
 from utils import FakeStream
 
 
+class FakeBody(object):
+    def __init__(self, content, chunk=1 << 16):
+        self.resp = mock.Mock()
+        self.length = len(content)
+        self.content = content
+        self.offset = 0
+        self.chunk = chunk
+
+    def next(self):
+        # Simulate swiftclient's _ObjectBody. Note that this requires that
+        # we supply a resp_chunk_size argument to get_body.
+        if self.offset == self.length:
+            raise StopIteration
+        self.offset += self.chunk
+        return self.content[self.offset - self.chunk:self.offset]
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        return self.next()
+
+
 class TestSyncSwift(unittest.TestCase):
     def setUp(self):
         self.aws_bucket = 'bucket'
         self.scratch_space = 'scratch'
+        self.max_conns = 10
         self.sync_swift = SyncSwift(
             {'aws_bucket': self.aws_bucket,
              'aws_identity': 'identity',
              'aws_secret': 'credential',
              'account': 'account',
              'container': 'container',
-             'aws_endpoint': 'http://swift.url/auth/v1.0'})
+             'aws_endpoint': 'http://swift.url/auth/v1.0'},
+            max_conns=self.max_conns)
 
     @mock.patch('s3_sync.sync_swift.swiftclient.client.Connection')
     @mock.patch('s3_sync.sync_swift.check_slo')
@@ -400,66 +425,79 @@ class TestSyncSwift(unittest.TestCase):
     @mock.patch('s3_sync.sync_swift.swiftclient.client.Connection')
     def test_shunt_object(self, mock_swift):
         key = 'key'
-        body = 'some fairly large content' * (1 << 16)
-        headers = {
-            # NB: swiftclient .lower()s all header names
-            'content-length': str(len(body)),
+
+        common_headers = {
             'content-type': 'application/unknown',
             'date': 'Thu, 15 Jun 2017 00:09:25 GMT',
-            'etag': '"e06dd4228b3a7ab66aae5fbc9e4b905e"',
             'last-modified': 'Wed, 14 Jun 2017 23:11:34 GMT',
             'x-trans-id': 'some trans id',
             'x-openstack-request-id': 'also some trans id',
             'x-object-meta-mtime': '1497315527.000000'}
 
+        tests = [
+            dict(content='some fairly large content' * (1 << 16),
+                 method='GET',
+                 headers={'etag': 'e06dd4228b3a7ab66aae5fbc9e4b905e'},
+                 conns_start=self.max_conns - 1,
+                 calls=[mock.call(
+                        self.aws_bucket, key,
+                        headers={'X-Trans-Id-Extra': 'local transaction id'},
+                        resp_chunk_size=1 << 16)]),
+            dict(content='',
+                 method='GET',
+                 headers={'etag': 'd41d8cd98f00b204e9800998ecf8427e'},
+                 conns_start=self.max_conns - 1,
+                 calls=[mock.call(
+                        self.aws_bucket, key,
+                        headers={'X-Trans-Id-Extra': 'local transaction id'},
+                        resp_chunk_size=1 << 16)]),
+            dict(method='HEAD',
+                 headers={'etag': 'e06dd4228b3a7ab66aae5fbc9e4b905e'},
+                 conns_start=self.max_conns,
+                 calls=[mock.call(
+                        self.aws_bucket, key,
+                        headers={'X-Trans-Id-Extra': 'local transaction id'})])
+        ]
+
         swift_client = mock.Mock()
         mock_swift.return_value = swift_client
 
-        def body_gen():
-            # Simulate swiftclient's _ObjectBody. Note that this requires that
-            # we supply a resp_chunk_size argument to get_body.
-            for i in range(0, len(body), 1 << 16):
-                yield body[i:i + (1 << 16)]
+        for test in tests:
+            content = test.get('content', '')
+            body = FakeBody(content)
+            headers = dict(common_headers)
+            headers['content-length'] = str(len(content))
+            headers.update(test['headers'])
 
-        swift_client.get_object.return_value = (headers, body_gen())
-        swift_client.head_object.return_value = headers
+            swift_client.reset_mock()
+            mocked = getattr(
+                swift_client, '_'.join([test['method'].lower(), 'object']))
+            if test['method'] == 'GET':
+                mocked.return_value = (headers, body)
+            else:
+                mocked.return_value = headers
 
-        expected_headers = [
-            # Content-Length must be properly capitalized,
-            # or eventlet will try to be "helpful"
-            ('Content-Length', str(len(body))),
-            # trans ids get hoisted to Remote-* namespace
-            ('Remote-x-openstack-request-id', 'also some trans id'),
-            ('Remote-x-trans-id', 'some trans id'),
-            # everything else...
-            ('content-type', 'application/unknown'),
-            ('date', 'Thu, 15 Jun 2017 00:09:25 GMT'),
-            ('etag', '"e06dd4228b3a7ab66aae5fbc9e4b905e"'),
-            ('last-modified', 'Wed, 14 Jun 2017 23:11:34 GMT'),
-            ('x-object-meta-mtime', '1497315527.000000'),
-        ]
+            expected_headers = {}
+            for k, v in common_headers.items():
+                if k == 'x-trans-id' or k == 'x-openstack-request-id':
+                    expected_headers['Remote-' + k] = v
+                else:
+                    expected_headers[k] = v
+            expected_headers['Content-Length'] = str(len(content))
+            expected_headers['etag'] = test['headers']['etag']
 
-        req = swob.Request.blank('/v1/AUTH_a/c/key', method='GET', environ={
-            'swift.trans_id': 'local transaction id',
-        })
-        status, headers, body_iter = self.sync_swift.shunt_object(req, key)
-        self.assertEqual(status, 200)
-        self.assertEqual(sorted(headers), expected_headers)
-        self.assertEqual(b''.join(body_iter), body)
-        self.assertEqual(swift_client.get_object.mock_calls, [
-            mock.call(self.aws_bucket, key, headers={
-                'X-Trans-Id-Extra': 'local transaction id',
-            }, resp_chunk_size=1 << 16)])
-
-        req.method = 'HEAD'
-        status, headers, body_iter = self.sync_swift.shunt_object(req, key)
-        self.assertEqual(status, 200)
-        self.assertEqual(sorted(headers), expected_headers)
-        self.assertEqual(b''.join(body_iter), '')
-        self.assertEqual(swift_client.head_object.mock_calls, [
-            mock.call(self.aws_bucket, key, headers={
-                'X-Trans-Id-Extra': 'local transaction id',
-            })])
+            req = swob.Request.blank(
+                '/v1/AUTH_a/c/key', method=test['method'],
+                environ={'swift.trans_id': 'local transaction id'})
+            status, headers, body_iter = self.sync_swift.shunt_object(req, key)
+            self.assertEqual(
+                test['conns_start'], self.sync_swift.client_pool.free_count())
+            self.assertEqual(status, 200)
+            self.assertEqual(sorted(headers), sorted(expected_headers.items()))
+            self.assertEqual(b''.join(body_iter), content)
+            self.assertEquals(mocked.mock_calls, test['calls'])
+            self.assertEqual(
+                self.max_conns, self.sync_swift.client_pool.free_count())
 
     @mock.patch('s3_sync.sync_swift.swiftclient.client.Connection')
     def test_shunt_range_request(self, mock_swift):
@@ -469,16 +507,12 @@ class TestSyncSwift(unittest.TestCase):
             'content-length': str(len(body)),
             'content-range': 'bytes 10-20/1000'}
 
-        def body_gen():
-            # Simulate swiftclient's _ObjectBody. Note that this requires that
-            # we supply a resp_chunk_size argument to get_body.
-            for i in range(0, len(body), 1 << 16):
-                yield body[i:i + (1 << 16)]
+        resp_body = FakeBody(body)
 
         swift_client = mock.Mock()
         mock_swift.return_value = swift_client
 
-        swift_client.get_object.return_value = (headers, body_gen())
+        swift_client.get_object.return_value = (headers, resp_body)
         swift_client.head_object.return_value = headers
 
         expected_headers = [
@@ -517,32 +551,65 @@ class TestSyncSwift(unittest.TestCase):
     @mock.patch('s3_sync.sync_swift.swiftclient.client.Connection')
     def test_shunt_object_network_error(self, mock_swift):
         key = 'key'
-        swift_client = mock.Mock()
-        mock_swift.return_value = swift_client
-        swift_client.get_object.side_effect = Exception
-        swift_client.head_object.side_effect = Exception
         req = swob.Request.blank('/v1/AUTH_a/c/key', method='GET', environ={
             'swift.trans_id': 'local transaction id',
         })
-        status, headers, body_iter = self.sync_swift.shunt_object(req, key)
-        self.assertEqual(status, 502)
-        self.assertEqual(headers, [])
-        self.assertEqual(b''.join(body_iter), 'Bad Gateway')
-        self.assertEqual(swift_client.get_object.mock_calls, [
-            mock.call(self.aws_bucket, key, headers={
-                'X-Trans-Id-Extra': 'local transaction id',
-            }, resp_chunk_size=1 << 16)])
+        swift_client = mock.Mock()
+        mock_swift.return_value = swift_client
 
-        # Again, but with HEAD
-        req.method = 'HEAD'
-        status, headers, body_iter = self.sync_swift.shunt_object(req, key)
-        self.assertEqual(status, 502)
-        self.assertEqual(headers, [])
-        self.assertEqual(b''.join(body_iter), b'')
-        self.assertEqual(swift_client.head_object.mock_calls, [
-            mock.call(self.aws_bucket, key, headers={
-                'X-Trans-Id-Extra': 'local transaction id',
-            })])
+        tests = [
+            {'method': 'GET',
+             'exception': Exception,
+             'status': 502,
+             'headers': [],
+             'message': 'Bad Gateway',
+             'mock_call': mock.call(
+                 self.aws_bucket, key,
+                 headers={'X-Trans-Id-Extra': 'local transaction id'},
+                 resp_chunk_size=1 << 16),
+             'conns_start': self.max_conns - 1,
+             'conns_end': self.max_conns},
+            {'method': 'GET',
+             'exception': ClientException(
+                 msg='failure occurred', http_status=500,
+                 http_response_content='failure occurred',
+                 http_response_headers={}),
+             'status': 500,
+             'headers': [],
+             'message': 'failure occurred',
+             'mock_call': mock.call(
+                 self.aws_bucket, key,
+                 headers={'X-Trans-Id-Extra': 'local transaction id'},
+                 resp_chunk_size=1 << 16),
+             'conns_start': self.max_conns - 1,
+             'conns_end': self.max_conns},
+            {'method': 'HEAD',
+             'exception': Exception,
+             'status': 502,
+             'headers': [],
+             'message': '',
+             'mock_call': mock.call(
+                 self.aws_bucket, key,
+                 headers={'X-Trans-Id-Extra': 'local transaction id'}),
+             'conns_start': self.max_conns,
+             'conns_end': self.max_conns}]
+
+        for test in tests:
+            swift_client.reset_mock()
+            client_method = '_'.join([test['method'].lower(), 'object'])
+            mocked_method = getattr(swift_client, client_method)
+            mocked_method.side_effect = test['exception']
+            req.method = test['method']
+
+            status, headers, body_iter = self.sync_swift.shunt_object(req, key)
+            self.assertEqual(
+                test['conns_start'], self.sync_swift.client_pool.free_count())
+            self.assertEqual(status, test['status'])
+            self.assertEqual(headers, test['headers'])
+            self.assertEqual(b''.join(body_iter), test['message'])
+            mocked_method.assert_has_calls([test['mock_call']])
+            self.assertEqual(
+                test['conns_end'], self.sync_swift.client_pool.free_count())
 
     @mock.patch('s3_sync.sync_swift.swiftclient.client.Connection')
     def test_per_account_bucket(self, mock_swift):
