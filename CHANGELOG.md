@@ -1,3 +1,27 @@
+## 0.1.23 (2018-01-31)
+
+Features:
+
+    - Added a swift-s3-verify utility, which allows for validating a provider's
+      credentials required by swift-s3-sync by performing
+      PUT/GET/HEAD/COPY/DELETE requests against a user-supplied bucket
+      (container).
+    - Added a swift-s3-migrator daemon, which allows for migrating objects from
+      a given Swift cluster into the Swift cluster which has swift-s3-migrator
+      deployed. The migration follows a pull model where the remote accounts and
+      containers are periodically scanned for new content. The object metadata
+      and timestamps are preserved in this process. Some limitations currently
+      exist:
+      - Dynamic Large Objects are not migrated
+      - container ACLs are not propagated
+      The migrator can be used against AWS S3 and S3-clones, as well. However,
+      that functionality is not well tested.
+
+Bug fixes:
+
+    - Resolved a possible issue where on a GET request through the swift-s3-sync
+      shunt the underlying connection may be prematurely re-used.
+
 ## 0.1.22 (2017-12-05)
 
 Improvement:
