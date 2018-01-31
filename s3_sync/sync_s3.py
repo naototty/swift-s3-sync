@@ -208,9 +208,11 @@ class SyncS3(BaseSync):
 
         return response.to_wsgi()
 
-    def head_object(self, key, **options):
+    def head_object(self, key, bucket=None, **options):
+        if bucket is None:
+            bucket = self.aws_bucket
         response = self._call_boto(
-            'head_object', Bucket=self.aws_bucket, Key=key, **options)
+            'head_object', Bucket=bucket, Key=key, **options)
         response.body = ['']
         return response
 

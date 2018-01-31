@@ -191,9 +191,10 @@ class SyncSwift(BaseSync):
                              req.method)
         return resp.to_wsgi()
 
-    def head_object(self, key, **options):
-        resp = self._call_swiftclient(
-            'head_object', self.remote_container, key, **options)
+    def head_object(self, key, bucket=None, **options):
+        if bucket is None:
+            bucket = self.remote_container
+        resp = self._call_swiftclient('head_object', bucket, key, **options)
         resp.body = ['']
         return resp
 

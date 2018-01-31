@@ -154,7 +154,7 @@ class BaseSync(object):
     def get_object(self, key, bucket=None, options={}):
         raise NotImplementedError()
 
-    def head_object(self, key, options={}):
+    def head_object(self, key, bucket=None, options={}):
         raise NotImplementedError()
 
     def list_objects(self, marker, limit, prefix, delimiter=None):
