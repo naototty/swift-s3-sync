@@ -64,7 +64,7 @@ def cmp_object_entries(left, right):
     if local_time == remote_time:
         if left['hash'] == right['hash']:
             return 0
-        raise RuntimeError('Same time objects have different ETags!')
+        raise MigrationError('Same time objects have different ETags!')
     return cmp(local_time, remote_time)
 
 
@@ -131,6 +131,10 @@ class Status(object):
                 raise
 
 
+class MigrationError(Exception):
+    pass
+
+
 class Migrator(object):
     '''List and move objects from a remote store into the Swift cluster'''
     def __init__(self, config, status, work_chunk, swift_pool, logger,
@@ -161,15 +165,24 @@ class Migrator(object):
         self.config['container'] = '.'
         self.provider = create_provider(
             self.config, self.max_conns, False)
-        containers = self.provider.list_buckets()
-        for index, container in enumerate(containers):
+        resp = self.provider.list_buckets()
+        if not resp.success:
+            raise MigrationError(
+                'Failed to list source buckets/containers: %s' %
+                ''.join(resp.body))
+        for index, container in enumerate(resp.body):
             if index % self.nodes == self.node_id:
                 # NOTE: we cannot remap container names when migrating all
                 # containers
                 self.config['aws_bucket'] = container['name']
                 self.config['container'] = container['name']
                 self.provider.aws_bucket = container['name']
-                self._next_pass()
+                try:
+                    self._next_pass()
+                except Exception as e:
+                    self.logger.log_error('Failed to migrate %s: %s' % (
+                                          container['name'], e))
+                    self.logger.log_error(''.join(traceback.format_exc()))
 
     def _next_pass(self):
         is_reset, keys, local_marker = self._list_source_objects()
@@ -205,14 +218,22 @@ class Migrator(object):
     def _list_source_objects(self):
         state = self.status.get_migration(self.config)
         reset = False
-        _, keys = self.provider.list_objects(
+        status, keys = self.provider.list_objects(
             state.get('marker', ''),
             self.work_chunk,
             self.config.get('prefix'))
+        if status != 200:
+            raise MigrationError(
+                'Failed to list source bucket/container "%s"' %
+                self.config['aws_bucket'])
         if not keys and state.get('marker'):
             reset = True
-            _, keys = self.provider.list_objects(
+            status, keys = self.provider.list_objects(
                 None, self.work_chunk, self.config.get('prefix'))
+            if status != 200:
+                raise MigrationError(
+                    'Failed to list source bucket/container "%s"' %
+                    self.config['aws_bucket'])
         if not reset:
             local_marker = state.get('marker', '')
         else:
@@ -222,6 +243,9 @@ class Migrator(object):
     def _create_container(self, container, internal_client, timeout=1):
         if self.config.get('protocol', 's3') == 'swift':
             resp = self.provider.head_bucket(container)
+            if resp.status != 200:
+                raise MigrationError('Failed to HEAD bucket/container %s' %
+                                     container)
             headers = {}
             for hdr in resp.headers:
                 if hdr.startswith('x-container-meta-'):
@@ -238,7 +262,7 @@ class Migrator(object):
             else:
                 self.logger.debug('Created container %s' % container)
                 return
-        raise RuntimeError('Timeout while creating container %s' % container)
+        raise MigrationError('Timeout while creating container %s' % container)
 
     def _find_missing_objects(self, source_list, marker):
         moved = 0
@@ -283,6 +307,9 @@ class Migrator(object):
     def _migrate_object(self, container, key):
         resp = self.provider.get_object(
             key, bucket=container, resp_chunk_size=65536)
+        if resp.status != 200:
+            raise MigrationError('Failed to GET %s/%s: %s' % (
+                container, key, resp.body))
         put_headers = convert_to_local_headers(
             resp.headers.items(), remove_timestamp=False)
         if 'x-static-large-object' in resp.headers:
@@ -294,7 +321,10 @@ class Migrator(object):
                 container, key, FileLikeIter(resp.body), put_headers)
 
     def _migrate_slo(self, slo_container, key, headers):
-        manifest = self.provider.get_manifest(key)
+        manifest = self.provider.get_manifest(key, slo_container)
+        if not manifest:
+            raise MigrationError('Failed to fetch the manifest for %s/%s' % (
+                                 slo_container, key))
         for entry in manifest:
             container, segment_key = entry['name'][1:].split('/', 1)
             meta = None
@@ -308,8 +338,12 @@ class Migrator(object):
                                          sys.exc_info()))
                         continue
             if meta:
-                src_meta = self.provider.head_object(
-                    segment_key, container).headers
+                resp = self.provider.head_object(
+                    segment_key, container)
+                if resp.status != 200:
+                    raise MigrationError('Failed to HEAD %s/%s' % (
+                        container, segment_key))
+                src_meta = resp.headers
                 if self.config.get('protocol', 's3') != 'swift':
                     src_meta = convert_to_swift_headers(src_meta)
                 ret = cmp_meta(meta, src_meta)
