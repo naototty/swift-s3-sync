@@ -421,6 +421,10 @@ def main():
         min_size=0,
         max_size=pool_size)
 
+    if 'process' not in migrator_conf or 'processes' not in migrator_conf:
+        print 'Missing "process" or "processes" settings in the config file'
+        exit(-1)
+
     node_id = int(migrator_conf['process'])
     nodes = int(migrator_conf['processes'])
 
