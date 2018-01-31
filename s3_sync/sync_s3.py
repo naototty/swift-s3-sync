@@ -562,11 +562,13 @@ class SyncS3(BaseSync):
             prefix, '.manifests', account, container,
             '%s%s' % (obj_hash, self.SLO_MANIFEST_SUFFIX)])
 
-    def get_manifest(self, key):
+    def get_manifest(self, key, bucket=None):
+        if bucket is None:
+            bucket = self.aws_bucket
         with self.client_pool.get_client() as boto_client:
             try:
                 resp = boto_client.client.get_object(
-                    Bucket=self.aws_bucket,
+                    Bucket=bucket,
                     Key=self.get_manifest_name(self.get_s3_name(key)))
                 return json.load(resp['Body'])
             except Exception as e:

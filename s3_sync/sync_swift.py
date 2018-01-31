@@ -340,11 +340,13 @@ class SyncSwift(BaseSync):
                                     headers=self._get_user_headers(headers),
                                     query_string='multipart-manifest=put')
 
-    def get_manifest(self, key):
+    def get_manifest(self, key, bucket=None):
+        if bucket is None:
+            bucket = self.remote_container
         with self.client_pool.get_client() as client:
             try:
                 headers, body = client.client.get_object(
-                    self.remote_container, key,
+                    bucket, key,
                     query_string='multipart-manifest=get')
                 return json.loads(body)
             except Exception as e:
