@@ -21,6 +21,7 @@ import swiftclient
 from swift.common.internal_client import UnexpectedResponse
 from swift.common.utils import FileLikeIter
 import traceback
+import urllib
 
 from .base_sync import BaseSync
 from .base_sync import ProviderResponse
@@ -50,10 +51,18 @@ class SyncSwift(BaseSync):
         # Endpoint must be defined for the Swift clusters and should be the
         # auth URL
         endpoint = self.settings['aws_endpoint']
+        os_options = {}
+        if self.settings.get('storage_account'):
+            scheme, rest = endpoint.split(':', 1)
+            host = urllib.splithost(rest)[0]
+            path = '/v1/%s' % urllib.quote(self.settings['storage_account'])
+            os_options = {
+                'object_storage_url': '%s:%s%s' % (scheme, host, path)}
 
         def swift_client_factory():
             return swiftclient.client.Connection(
-                authurl=endpoint, user=username, key=key, retries=3)
+                authurl=endpoint, user=username, key=key, retries=3,
+                os_options=os_options)
         return swift_client_factory
 
     def upload_object(self, name, policy, internal_client):
