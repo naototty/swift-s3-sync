@@ -134,7 +134,7 @@ class Status(object):
 class Migrator(object):
     '''List and move objects from a remote store into the Swift cluster'''
     def __init__(self, config, status, work_chunk, swift_pool, logger,
-                 node_id, count):
+                 node_id, nodes):
         self.config = dict(config)
         if 'container' not in self.config:
             # NOTE: in the future this may no longer be true, as we may allow
@@ -149,7 +149,7 @@ class Migrator(object):
         self.workers = config.get('workers', 10)
         self.logger = logger
         self.node_id = node_id
-        self.count = count
+        self.nodes = nodes
 
     def next_pass(self):
         if self.config['aws_bucket'] != '/*':
@@ -163,7 +163,7 @@ class Migrator(object):
             self.config, self.max_conns, False)
         containers = self.provider.list_buckets()
         for index, container in enumerate(containers):
-            if index % self.count == self.node_id:
+            if index % self.nodes == self.node_id:
                 # NOTE: we cannot remap container names when migrating all
                 # containers
                 self.config['aws_bucket'] = container['name']
@@ -387,17 +387,17 @@ def main():
         min_size=0,
         max_size=pool_size)
 
-    node_id = int(migrator_conf['node_id'])
-    count = int(migrator_conf['nodes'])
+    node_id = int(migrator_conf['process'])
+    nodes = int(migrator_conf['processes'])
 
     while True:
         for index, migration in enumerate(conf.get('migrations', [])):
-            if migration['aws_bucket'] == '/*' or index % count == node_id:
+            if migration['aws_bucket'] == '/*' or index % nodes == node_id:
                 try:
                     migrator = Migrator(migration, migration_status,
                                         migrator_conf['items_chunk'],
                                         internal_pool, logger,
-                                        node_id, count)
+                                        node_id, nodes)
                     migrator.next_pass()
                 except Exception as e:
                     logger.error('Migration error: %r\n%s' % (

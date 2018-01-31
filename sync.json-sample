@@ -15,8 +15,8 @@
     ],
     "migrator_config": {
         "workers": 10,
-        "node_id": 0,
-        "nodes": 1,
+        "process": 0,
+        "processes": 1,
         "items_chunk": 1000,
         "status_file": "/var/lib/swift-s3-migrator/migrator.status"
     },
