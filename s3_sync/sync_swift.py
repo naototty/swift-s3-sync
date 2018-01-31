@@ -222,7 +222,7 @@ class SyncSwift(BaseSync):
     def list_buckets(self):
         resp = self._call_swiftclient('get_account', None, None)
         if resp.status == 200:
-            for container in resp:
+            for container in resp.body:
                 container['last_modified'] = datetime.datetime.strptime(
                     container['last_modified'], SWIFT_TIME_FMT)
         return resp

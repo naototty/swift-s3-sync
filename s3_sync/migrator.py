@@ -437,6 +437,13 @@ def main():
         for index, migration in enumerate(conf.get('migrations', [])):
             if migration['aws_bucket'] == '/*' or index % nodes == node_id:
                 try:
+                    if migration.get('remote_account'):
+                        src_account = migration.get('remote_account')
+                    else:
+                        src_account = migration['aws_identity']
+                    logger.debug('Processing %s' % (
+                        ':'.join([migration.get('aws_endpoint', ''),
+                                  src_account, migration['aws_bucket']])))
                     migrator = Migrator(migration, migration_status,
                                         migrator_conf['items_chunk'],
                                         internal_pool, logger,
