@@ -23,10 +23,12 @@ import unittest
 class TestMain(unittest.TestCase):
 
     @mock.patch('s3_sync.daemon_utils.os.path.exists')
-    @mock.patch('s3_sync.daemon_utils.setup_logger')
+    @mock.patch('s3_sync.daemon_utils.logging')
     @mock.patch('s3_sync.__main__.ContainerCrawler')
-    def test_log_lvl(self, crawler_mock, setup_logger_mock, exists_mock):
+    def test_log_lvl(self, crawler_mock, logging_mock, exists_mock):
         exists_mock.return_value = True
+        mock_logger = mock.Mock()
+        logging_mock.getLogger.return_value = mock_logger
 
         test_params = [
             {'conf_level': None,
@@ -43,7 +45,7 @@ class TestMain(unittest.TestCase):
         try:
             # avoid loading boto3 and SyncContainer
             sys.modules['s3_sync.sync_container'] = mock.Mock()
-            defaults = ['main', '--conf', '/sample/config']
+            defaults = ['main', '--console', '--conf', '/sample/config']
 
             for params in test_params:
                 with mock.patch('s3_sync.daemon_utils.load_config') \
@@ -57,9 +59,8 @@ class TestMain(unittest.TestCase):
                             params['conf_level']
 
                     s3_sync.__main__.main()
-                    setup_logger_mock.assert_called_once_with(
-                        's3-sync', console=False, level=params['expected'],
-                        log_file=None)
-                setup_logger_mock.reset_mock()
+                mock_logger.setLevel.assert_has_calls(
+                    [mock.call(params['expected'])] * 3)
+                mock_logger.reset_mock()
         finally:
             del sys.modules['s3_sync.sync_container']

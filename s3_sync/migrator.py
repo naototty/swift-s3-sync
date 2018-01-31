@@ -28,7 +28,7 @@ import time
 import traceback
 
 from container_crawler.utils import create_internal_client
-from .daemon_utils import setup_context
+from .daemon_utils import load_swift, setup_context, setup_logger
 from .provider_factory import create_provider
 from .utils import (convert_to_local_headers, convert_to_swift_headers,
                     SWIFT_TIME_FMT)
@@ -398,11 +398,7 @@ class Migrator(object):
 
 def main():
     args, conf = setup_context(
-        description='Daemon to migrate objects into Swift',
-        logger_name='swift-s3-migrator')
-
-    logger = logging.getLogger('swift-s3-migrator')
-
+        description='Daemon to migrate objects into Swift')
     if 'migrator_settings' not in conf:
         print 'Missing migrator settings section'
         exit(-1)
@@ -412,6 +408,15 @@ def main():
         print 'Missing status file location!'
         exit(-1 * errno.ENOENT)
 
+    logger_name = 'swift-s3-migrator'
+    if args.log_level:
+        migrator_conf['log_level'] = args.log_level
+    migrator_conf['console'] = args.console
+
+    setup_logger(logger_name, migrator_conf)
+    load_swift(logger_name, args.once)
+
+    logger = logging.getLogger(logger_name)
     migration_status = Status(migrator_conf['status_file'])
 
     pool_size = migrator_conf.get('workers', 10)

@@ -26,15 +26,16 @@ import time
 MAX_LOG_SIZE = 100 * 1024 * 1024
 
 
-def setup_logger(logger_name, console=False, log_file=None, level='INFO'):
+def setup_logger(logger_name, config):
+    level = config.get('log_level', 'info').upper()
     logger = logging.getLogger(logger_name)
     logger.setLevel(level)
     formatter = logging.Formatter(
         '[%(asctime)s] %(name)s [%(levelname)s]: %(message)s')
-    if console:
+    if config.get('console'):
         handler = logging.StreamHandler()
-    elif log_file:
-        handler = logging.handlers.RotatingFileHandler(log_file,
+    elif config.get('log_file'):
+        handler = logging.handlers.RotatingFileHandler(config['log_file'],
                                                        maxBytes=MAX_LOG_SIZE,
                                                        backupCount=5)
     else:
@@ -84,19 +85,11 @@ def parse_args(args, description):
     return parser.parse_args(args)
 
 
-def setup_context(description='Swift-S3 synchronization daemon',
-                  logger_name='s3-sync'):
+def setup_context(description='Swift-S3 synchronization daemon'):
     args = parse_args(sys.argv[1:], description)
     if not os.path.exists(args.config):
         print 'Configuration file does not exist'
         exit(0)
 
     conf = load_config(args.config)
-    if not args.log_level:
-        args.log_level = conf.get('log_level', 'info')
-    setup_logger(logger_name, console=args.console,
-                 level=args.log_level.upper(), log_file=conf.get('log_file'))
-
-    # Swift may not be loaded when we start. Spin, waiting for it to load
-    load_swift(logger_name, args.once)
     return args, conf

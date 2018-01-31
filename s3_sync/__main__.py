@@ -19,14 +19,20 @@ import os
 import traceback
 
 from container_crawler import ContainerCrawler
-from .daemon_utils import setup_context
+from .daemon_utils import load_swift, setup_context, setup_logger
 
 
 def main():
     args, conf = setup_context()
+    if args.log_level:
+        conf['log_level'] = args.log_level
+    conf['console'] = args.console
+    logger_name = 's3-sync'
+    setup_logger(logger_name, conf)
+    load_swift(logger_name, args.once)
 
     from .sync_container import SyncContainer
-    logger = logging.getLogger('s3-sync')
+    logger = logging.getLogger(logger_name)
     logger.debug('Starting S3Sync')
 
     if 'http_proxy' in conf:
