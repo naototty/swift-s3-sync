@@ -13,6 +13,17 @@
             "retain_local": false
         }
     ],
+    "migrations": [
+        {
+            "account": "AUTH_test",
+            "aws_endpoint": "http://localhost:8080/auth/v1.0",
+            "aws_identity": "admin:admin",
+            "aws_secret": "admin",
+            "remote_account": "AUTH_test2",
+            "aws_bucket": "/*",
+            "protocol": "swift"
+        }
+    ],
     "migrator_config": {
         "workers": 10,
         "process": 0,
