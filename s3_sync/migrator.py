@@ -312,6 +312,11 @@ class Migrator(object):
                 container, key, resp.body))
         put_headers = convert_to_local_headers(
             resp.headers.items(), remove_timestamp=False)
+        if 'x-object-manifest' in resp.headers:
+            self.logger.warning('Skipping Dynamic Large Object %s/%s' % (
+                container, key))
+            resp.body.close()
+            return
         if 'x-static-large-object' in resp.headers:
             # We have to move the segments and then move the manifest file
             resp.body.close()
