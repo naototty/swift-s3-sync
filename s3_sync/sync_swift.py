@@ -14,6 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 """
 
+import datetime
 import eventlet
 import json
 import swiftclient
@@ -24,7 +25,7 @@ import traceback
 from .base_sync import BaseSync
 from .base_sync import ProviderResponse
 from .utils import (FileWrapper, ClosingResourceIterable, check_slo,
-                    SWIFT_USER_META_PREFIX)
+                    SWIFT_USER_META_PREFIX, SWIFT_TIME_FMT)
 
 
 class SyncSwift(BaseSync):
@@ -190,15 +191,31 @@ class SyncSwift(BaseSync):
                              req.method)
         return resp.to_wsgi()
 
-    def head_object(self, key, **options):
-        resp = self._call_swiftclient(
-            'head_object', self.remote_container, key, **options)
+    def head_object(self, key, bucket=None, **options):
+        if bucket is None:
+            bucket = self.remote_container
+        resp = self._call_swiftclient('head_object', bucket, key, **options)
         resp.body = ['']
         return resp
 
-    def get_object(self, key, **options):
+    def get_object(self, key, bucket=None, **options):
+        if bucket is None:
+            bucket = self.remote_container
         return self._call_swiftclient(
-            'get_object', self.remote_container, key, **options)
+            'get_object', bucket, key, **options)
+
+    def head_bucket(self, bucket=None, **options):
+        if bucket is None:
+            bucket = self.remote_container
+        return self._call_swiftclient(
+            'head_container', bucket, None, **options)
+
+    def list_buckets(self):
+        resp = self._call_swiftclient('get_account', None, None).body
+        for container in resp:
+            container['last_modified'] = datetime.datetime.strptime(
+                container['last_modified'], SWIFT_TIME_FMT)
+        return resp
 
     def _call_swiftclient(self, op, container, key, **args):
         def translate(header, value):
@@ -211,7 +228,12 @@ class SyncSwift(BaseSync):
 
         def _perform_op(client):
             try:
-                resp = getattr(client, op)(container, key, **args)
+                if not container:
+                    resp = getattr(client, op)(**args)
+                elif container and not key:
+                    resp = getattr(client, op)(container, **args)
+                else:
+                    resp = getattr(client, op)(container, key, **args)
                 if isinstance(resp, tuple):
                     headers, body = resp
                 else:
@@ -231,7 +253,7 @@ class SyncSwift(BaseSync):
                 self.logger.exception('Error contacting remote swift cluster')
                 return ProviderResponse(False, 502, {}, iter('Bad Gateway'))
 
-        if op == 'get_object':
+        if op == 'get_object' and 'resp_chunk_size' in args:
             client = self.client_pool.get_client()
             resp = _perform_op(client.client)
             if resp.success:
@@ -246,7 +268,7 @@ class SyncSwift(BaseSync):
                 swift_client = client.client
                 return _perform_op(swift_client)
 
-    def list_objects(self, marker, limit, prefix, delimiter):
+    def list_objects(self, marker, limit, prefix, delimiter=None):
         try:
             with self.client_pool.get_client() as client:
                 swift_client = client.client

@@ -58,7 +58,7 @@ class TestMain(unittest.TestCase):
 
                     s3_sync.__main__.main()
                     setup_logger_mock.assert_called_once_with(
-                        console=False, level=params['expected'],
+                        's3-sync', console=False, level=params['expected'],
                         log_file=None)
                 setup_logger_mock.reset_mock()
         finally:

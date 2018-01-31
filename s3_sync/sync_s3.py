@@ -208,15 +208,31 @@ class SyncS3(BaseSync):
 
         return response.to_wsgi()
 
-    def head_object(self, key, **options):
+    def head_object(self, key, bucket=None, **options):
+        if bucket is None:
+            bucket = self.aws_bucket
         response = self._call_boto(
-            'head_object', Bucket=self.aws_bucket, Key=key, **options)
+            'head_object', Bucket=bucket, Key=key, **options)
         response.body = ['']
         return response
 
-    def get_object(self, key, **options):
+    def get_object(self, key, bucket=None, **options):
+        if bucket is None:
+            bucket = self.aws_bucket
         return self._call_boto(
-            'get_object', Bucket=self.aws_bucket, Key=key, **options)
+            'get_object', Bucket=bucket, Key=key, **options)
+
+    def head_bucket(self, bucket=None, **options):
+        if not bucket:
+            bucket = self.aws_bucket
+        return self._call_boto('head_bucket', bucket, None, **options)
+
+    def list_buckets(self):
+        resp = self._call_boto('list_buckets').body['Buckets']
+        return [{'last_modified': bucket['CreationDate'],
+                 'count': 0,
+                 'bytes': 0,
+                 'name': bucket['Name']} for bucket in resp]
 
     def _call_boto(self, op, **args):
         def _perform_op(s3_client):
@@ -255,7 +271,7 @@ class SyncS3(BaseSync):
                 s3_client = boto_client.client
                 return _perform_op(s3_client)
 
-    def list_objects(self, marker, limit, prefix, delimiter):
+    def list_objects(self, marker, limit, prefix, delimiter=None):
         if limit > 1000:
             limit = 1000
         args = dict(Bucket=self.aws_bucket)

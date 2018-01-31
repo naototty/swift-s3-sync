@@ -151,13 +151,19 @@ class BaseSync(object):
     def shunt_object(self, request, name):
         raise NotImplementedError()
 
-    def get_object(self, key, options={}):
+    def get_object(self, key, bucket=None, options={}):
         raise NotImplementedError()
 
-    def head_object(self, key, options={}):
+    def head_object(self, key, bucket=None, options={}):
         raise NotImplementedError()
 
-    def list_objects(self, marker, limit, prefix, delimiter):
+    def head_bucket(self, bucket, options={}):
+        raise NotImplementedError()
+
+    def list_objects(self, marker, limit, prefix, delimiter=None):
+        raise NotImplementedError()
+
+    def list_buckets(self):
         raise NotImplementedError()
 
     def _get_client_factory(self):

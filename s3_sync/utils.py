@@ -29,6 +29,7 @@ S3_USER_META_PREFIX = 'x-amz-meta-'
 MANIFEST_HEADER = 'x-object-manifest'
 SLO_HEADER = 'x-static-large-object'
 SLO_ETAG_FIELD = 'swift-slo-etag'
+SWIFT_TIME_FMT = '%Y-%m-%dT%H:%M:%S.%f'
 
 
 class FileWrapper(object):
@@ -442,6 +443,12 @@ class ClosingResourceIterable(object):
             self.exhausted = True
             raise
 
+    def close(self):
+        if not self.exhausted:
+            self.close_data()
+        if not self.closed:
+            self.resource.close()
+
     def __next__(self):
         return self.next()
 
@@ -454,10 +461,7 @@ class ClosingResourceIterable(object):
             the pool, and the content is not consumed. We handle this in the
             destructor.
         """
-        if not self.exhausted:
-            self.close_data()
-        if not self.closed:
-            self.resource.close()
+        self.close()
 
 
 def convert_to_s3_headers(swift_headers):
@@ -493,6 +497,21 @@ def convert_to_swift_headers(s3_headers):
         else:
             swift_headers[header] = value
     return swift_headers
+
+
+def convert_to_local_headers(headers, remove_timestamp=True):
+    put_headers = dict([(k, v) for k, v in headers
+                        if not k.startswith('Remote-')])
+    if 'etag' in put_headers:
+        put_headers['Content-MD5'] = put_headers['etag']
+        del put_headers['etag']
+    # We must remove the X-Timestamp header, as otherwise objects may
+    # never be restored if a tombstone is present (as the remote
+    # timestamp may be older than then tombstone). Only happens if
+    # restoring from Swift.
+    if 'x-timestamp' in put_headers and remove_timestamp:
+        del put_headers['x-timestamp']
+    return put_headers
 
 
 def get_slo_etag(manifest):
