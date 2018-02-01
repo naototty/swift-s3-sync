@@ -136,7 +136,7 @@ class TestCloudSync(TestCloudSyncBase):
             (u'unicod\u00e9', u'unicod\u00e9 blob')]
         for key, content in test_args:
             s3_key = s3_key_name(s3_mapping, key)
-            expected_location = '%s;%s;%s' % (
+            expected_location = '%s;%s;%s/' % (
                 s3_mapping['aws_endpoint'],
                 s3_mapping['aws_identity'],
                 s3_key[:-1 * (len(key) + 1)])

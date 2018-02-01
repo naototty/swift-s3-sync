@@ -1329,7 +1329,7 @@ class TestSyncS3(unittest.TestCase):
             MaxKeys=10,
             Marker='%s/marker' % prefix)
         self.assertEqual(200, status)
-        expected_location = 'AWS S3;%s;%s' % (self.aws_bucket, prefix)
+        expected_location = 'AWS S3;%s;%s/' % (self.aws_bucket, prefix)
         self.assertEqual(
             dict(subdir='afirstpref',
                  content_location=expected_location),

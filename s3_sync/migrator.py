@@ -218,10 +218,14 @@ class Migrator(object):
     def _list_source_objects(self):
         state = self.status.get_migration(self.config)
         reset = False
+        list_args = {}
+        if self.config.get('protocol', 's3') == 's3':
+            list_args['native'] = True
         status, keys = self.provider.list_objects(
             state.get('marker', ''),
             self.work_chunk,
-            self.config.get('prefix'))
+            self.config.get('prefix'),
+            **list_args)
         if status != 200:
             raise MigrationError(
                 'Failed to list source bucket/container "%s"' %
@@ -229,7 +233,8 @@ class Migrator(object):
         if not keys and state.get('marker'):
             reset = True
             status, keys = self.provider.list_objects(
-                None, self.work_chunk, self.config.get('prefix'))
+                None, self.work_chunk, self.config.get('prefix'),
+                **list_args)
             if status != 200:
                 raise MigrationError(
                     'Failed to list source bucket/container "%s"' %
@@ -305,8 +310,10 @@ class Migrator(object):
         return moved
 
     def _migrate_object(self, container, key):
-        resp = self.provider.get_object(
-            key, bucket=container, resp_chunk_size=65536)
+        args = {'bucket': container}
+        if self.config.get('protocol', '') == 'swift':
+            args['resp_chunk_size'] = 65536
+        resp = self.provider.get_object(key, **args)
         if resp.status != 200:
             raise MigrationError('Failed to GET %s/%s: %s' % (
                 container, key, resp.body))

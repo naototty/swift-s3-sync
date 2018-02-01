@@ -273,7 +273,8 @@ class SyncS3(BaseSync):
                 s3_client = boto_client.client
                 return _perform_op(s3_client)
 
-    def list_objects(self, marker, limit, prefix, delimiter=None):
+    def list_objects(self, marker, limit, prefix, delimiter=None,
+                     native=False):
         if limit > 1000:
             limit = 1000
         args = dict(Bucket=self.aws_bucket)
@@ -281,28 +282,35 @@ class SyncS3(BaseSync):
         try:
             with self.client_pool.get_client() as boto_client:
                 s3_client = boto_client.client
-                s3_prefix = '%s/%s/%s' % (
-                    self.get_prefix(), self.account, self.container)
-                args['Prefix'] = '%s/%s' % (s3_prefix, prefix.decode('utf-8'))
+                if native:
+                    key_prefix = ''
+                else:
+                    key_prefix = '%s/%s/%s/' % (
+                        self.get_prefix(), self.account, self.container)
+                prefix = '%s%s' % (key_prefix, prefix.decode('utf-8'))
+                if prefix:
+                    args['Prefix'] = prefix
                 # Works around an S3 proxy bug where empty-string prefix and
                 # delimiter still results in a listing with CommonPrefixes and
                 # no objects
                 if marker:
-                    args['Marker'] = '%s/%s' % (
-                        s3_prefix, marker.decode('utf-8'))
+                    args['Marker'] = '%s%s' % (
+                        key_prefix, marker.decode('utf-8'))
                 if delimiter:
                     args['Delimiter'] = delimiter.decode('utf-8')
                 resp = s3_client.list_objects(**args)
                 # s3proxy does not include the ETag information when used with
                 # the filesystem provider
-                key_offset = len(s3_prefix) + 1
+                key_offset = len(key_prefix)
                 location_prefix = self.endpoint
                 if self._google():
                     location_prefix = 'Google Cloud Storage'
                 elif not location_prefix:
                     location_prefix = 'AWS S3'
-                content_location = u';'.join([
-                    location_prefix, self.aws_bucket, s3_prefix])
+                location_parts = [location_prefix, self.aws_bucket]
+                if key_prefix:
+                    location_parts.append(key_prefix)
+                content_location = ';'.join(location_parts)
                 keys = [dict(hash=row.get('ETag', '').replace('"', ''),
                              name=urllib.unquote(row['Key'])[key_offset:],
                              last_modified=row['LastModified'].isoformat(),
