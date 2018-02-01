@@ -373,8 +373,14 @@ class Migrator(object):
             slo_container, key, FileLikeIter(manifest_blob), headers))
 
     def _upload_object(self, container, key, content, headers):
-        headers['x-timestamp'] = Timestamp(
-            float(headers['x-timestamp'])).internal
+        if 'x-timestamp' in headers:
+            headers['x-timestamp'] = Timestamp(
+                float(headers['x-timestamp'])).internal
+        else:
+            ts = datetime.datetime.strptime(headers['last-modified'],
+                                            LAST_MODIFIED_FMT)
+            ts = Timestamp((ts - EPOCH).total_seconds()).internal
+            headers['x-timestamp'] = ts
         del headers['last-modified']
         with self.ic_pool.item() as ic:
             try:
