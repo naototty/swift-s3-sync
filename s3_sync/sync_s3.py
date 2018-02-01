@@ -32,7 +32,7 @@ from .base_sync import ProviderResponse
 from .utils import (
     convert_to_s3_headers, convert_to_swift_headers, FileWrapper,
     SLOFileWrapper, ClosingResourceIterable, get_slo_etag, check_slo,
-    SLO_ETAG_FIELD, SLO_HEADER, SWIFT_USER_META_PREFIX)
+    SLO_ETAG_FIELD, SLO_HEADER, SWIFT_USER_META_PREFIX, SWIFT_TIME_FMT)
 
 
 class SyncS3(BaseSync):
@@ -313,7 +313,8 @@ class SyncS3(BaseSync):
                 content_location = ';'.join(location_parts)
                 keys = [dict(hash=row.get('ETag', '').replace('"', ''),
                              name=urllib.unquote(row['Key'])[key_offset:],
-                             last_modified=row['LastModified'].isoformat(),
+                             last_modified=row['LastModified'].strftime(
+                             SWIFT_TIME_FMT),
                              bytes=row['Size'],
                              content_location=content_location,
                              # S3 does not include content-type in listings
