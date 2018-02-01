@@ -1,3 +1,14 @@
+## 0.1.24 (2018-02-01)
+
+Bug fixes:
+
+    - Fixed shunted S3 listings to return Last-Modified date in the same format
+      as Swift.
+    - Migration out of S3 buckets sets the X-Timestamp header from Last-Modified
+      date (as X-Timestamp is absent).
+    - List entire S3 bucket contents when performing migration out of S3 (as
+      opposed to assuming a namespace keyed off the hash).
+
 ## 0.1.23 (2018-01-31)
 
 Features:
