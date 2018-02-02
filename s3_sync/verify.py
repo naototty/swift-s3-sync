@@ -17,6 +17,7 @@ limitations under the License.
 import argparse
 from cStringIO import StringIO
 import hashlib
+import urlparse
 
 import botocore.exceptions
 import swiftclient.exceptions
@@ -103,6 +104,8 @@ def main(args=None):
     }
     if args.bucket == '/*':
         conf['aws_bucket'] = u'.cloudsync_test_container-\U0001f44d'
+    if urlparse.urlparse(args.endpoint).hostname.endswith('.amazonaws.com'):
+        conf['aws_endpoint'] = None  # let Boto sort it out
 
     if conf['aws_bucket'] and '/' in conf['aws_bucket']:
         return 'Invalid argument: slash is not allowed in container name'

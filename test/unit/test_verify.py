@@ -38,7 +38,7 @@ class TestMainTrackProvider(unittest.TestCase):
             if k.startswith('aws_') or k in ('protocol',)
         }, {
             'protocol': 's3',
-            'aws_endpoint': 'https://s3.amazonaws.com',
+            'aws_endpoint': None,
             'aws_identity': 'access id',
             'aws_secret': 'secret key',
             'aws_bucket': 'some-bucket',
