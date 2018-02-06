@@ -414,6 +414,45 @@ class Migrator(object):
                 self.object_queue.task_done()
 
 
+def process_migrations(migrations, migration_status, internal_pool, logger,
+                       items_chunk, node_id, nodes):
+    for index, migration in enumerate(migrations):
+        if migration['aws_bucket'] == '/*' or index % nodes == node_id:
+            try:
+                if migration.get('remote_account'):
+                    src_account = migration.get('remote_account')
+                else:
+                    src_account = migration['aws_identity']
+                logger.debug('Processing %s' % (
+                    ':'.join([migration.get('aws_endpoint', ''),
+                              src_account, migration['aws_bucket']])))
+                migrator = Migrator(migration, migration_status,
+                                    items_chunk,
+                                    internal_pool, logger,
+                                    node_id, nodes)
+                migrator.next_pass()
+            except Exception as e:
+                logger.error('Migration error: %r\n%s' % (
+                    e, traceback.format_exc(e)))
+
+
+def run(migrations, migration_status, internal_pool, logger, items_chunk,
+        node_id, nodes, poll_interval, once):
+    while True:
+        cycle_start = time.time()
+        process_migrations(migrations, migration_status, internal_pool, logger,
+                           items_chunk, node_id, nodes)
+        elapsed = time.time() - cycle_start
+        naptime = max(0, poll_interval - elapsed)
+        msg = 'Finished cycle in %0.2fs' % elapsed
+        if once:
+            logger.debug(msg)
+            return
+        msg += ', sleeping for %0.2fs.' % naptime
+        logger.debug(msg)
+        time.sleep(naptime)
+
+
 def main():
     args, conf = setup_context(
         description='Daemon to migrate objects into Swift')
@@ -448,30 +487,15 @@ def main():
         print 'Missing "process" or "processes" settings in the config file'
         exit(-1)
 
+    items_chunk = migrator_conf['items_chunk']
     node_id = int(migrator_conf['process'])
     nodes = int(migrator_conf['processes'])
+    poll_interval = float(conf.get('poll_interval', 5))
 
-    while True:
-        for index, migration in enumerate(conf.get('migrations', [])):
-            if migration['aws_bucket'] == '/*' or index % nodes == node_id:
-                try:
-                    if migration.get('remote_account'):
-                        src_account = migration.get('remote_account')
-                    else:
-                        src_account = migration['aws_identity']
-                    logger.debug('Processing %s' % (
-                        ':'.join([migration.get('aws_endpoint', ''),
-                                  src_account, migration['aws_bucket']])))
-                    migrator = Migrator(migration, migration_status,
-                                        migrator_conf['items_chunk'],
-                                        internal_pool, logger,
-                                        node_id, nodes)
-                    migrator.next_pass()
-                except Exception as e:
-                    logger.error('Migration error: %r\n%s' % (
-                        e, traceback.format_exc(e)))
-        if args.once:
-            break
+    migrations = conf.get('migrations', [])
+
+    run(migrations, migration_status, internal_pool, logger, items_chunk,
+        node_id, nodes, poll_interval, args.once)
 
 
 if __name__ == '__main__':
