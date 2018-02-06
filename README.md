@@ -69,7 +69,7 @@ pip install swift-s3-sync-<version>.tar.gz
 
 You also will need to install the `container-crawler` library from Git:
 ```
-pip install -e git://github.com/swiftstack/container-crawler.git@0.0.9#egg=container-crawler
+pip install -e git://github.com/swiftstack/container-crawler.git@0.0.11#egg=container-crawler
 ```
 
 After that, you should have the `swift-s3-sync` executable available in

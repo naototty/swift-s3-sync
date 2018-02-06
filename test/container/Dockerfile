@@ -4,9 +4,9 @@ RUN apt-get update && \
     apt-get install --no-install-recommends -y python-support openjdk-7-jdk wget && \
     apt-get clean
 
-RUN pip install -e git://github.com/swiftstack/botocore.git@1.4.32.5#egg=botocore && \
+RUN pip install -e git://github.com/swiftstack/botocore.git@1.4.32.6#egg=botocore && \
     pip install boto3==1.3.1 && \
-    pip install -e git://github.com/swiftstack/container-crawler.git@0.0.9#egg=container-crawler && \
+    pip install -e git://github.com/swiftstack/container-crawler.git@0.0.11#egg=container-crawler && \
     pip install nose flake8==3.5.0 && \
     pip uninstall -y hacking
 
