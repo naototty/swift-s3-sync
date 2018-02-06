@@ -13,17 +13,33 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 """
-import time
-import mock
-import logging
-from StringIO import StringIO
-from contextlib import contextmanager
 
+from contextlib import contextmanager
+import datetime
+import errno
+import json
+import logging
+import mock
+from s3_sync.base_sync import ProviderResponse
 import s3_sync.migrator
+from StringIO import StringIO
+from swift.common.internal_client import UnexpectedResponse
+from swift.common.utils import Timestamp
+import time
 import unittest
 
 
-class TestMigrator(unittest.TestCase):
+def create_timestamp(epoch_ts):
+    dt = datetime.datetime.utcfromtimestamp(epoch_ts)
+    return dt.strftime(s3_sync.migrator.LAST_MODIFIED_FMT) + ' UTC'
+
+
+def create_list_timestamp(epoch_ts):
+    dt = datetime.datetime.utcfromtimestamp(epoch_ts)
+    return dt.strftime(s3_sync.utils.SWIFT_TIME_FMT)
+
+
+class TestMigratorUtils(unittest.TestCase):
     def test_migration_comparison(self):
         test_cases = [
             ({'account': 'AUTH_account',
@@ -95,6 +111,617 @@ class TestMigrator(unittest.TestCase):
             else:
                 with self.assertRaises(expected):
                     s3_sync.migrator.cmp_object_entries(left, right)
+
+    @mock.patch('s3_sync.migrator.open')
+    def test_status_get(self, mock_open):
+        mock_file = mock.Mock()
+        mock_file.__enter__ = lambda *args: mock_file
+        mock_file.__exit__ = lambda *args: None
+        mock_open.return_value = mock_file
+
+        test_cases = [
+            [{'aws_bucket': 'testbucket',
+              'aws_endpoint': '',
+              'aws_identity': 'identity',
+              'aws_secret': 'secret',
+              'account': 'AUTH_test',
+              'protocol': 's3',
+              'status': {
+                  'moved_count': 10,
+                  'scanned_count': 20}}],
+            [{'aws_bucket': 'testbucket',
+              'aws_endpoint': 'http://swift',
+              'aws_identity': 'identity',
+              'aws_secret': 'secret',
+              'account': 'AUTH_test',
+              'protocol': 'swift',
+              'status': {
+                  'moved_count': 123,
+                  'scanned_count': 100}}],
+        ]
+        for test in test_cases:
+            mock_file.reset_mock()
+            mock_file.read.return_value = json.dumps(test)
+
+            status = s3_sync.migrator.Status('/fake/location')
+            self.assertEqual({}, status.get_migration(
+                {'aws_identity': '',
+                 'aws_secret': ''}))
+            for migration in test:
+                query = dict(migration)
+                del query['status']
+                self.assertEqual(
+                    migration['status'], status.get_migration(query))
+
+    @mock.patch('s3_sync.migrator.open')
+    def test_status_get_missing(self, mock_open):
+        mock_open.side_effect = IOError(errno.ENOENT, 'missing file')
+
+        status = s3_sync.migrator.Status('/fake/location')
+        self.assertEqual({}, status.get_migration({}))
+
+    @mock.patch('s3_sync.migrator.open')
+    def test_status_get_errors(self, mock_open):
+        mock_open.side_effect = IOError(errno.EPERM, 'denied')
+
+        status = s3_sync.migrator.Status('/fake/location')
+        with self.assertRaises(IOError) as e:
+            status.get_migration({})
+        self.assertEqual(errno.EPERM, e.exception.errno)
+
+    @mock.patch('s3_sync.migrator.open')
+    def test_status_save(self, mock_open):
+        mock_file = mock.Mock()
+        mock_file.__enter__ = lambda *args: mock_file
+        mock_file.__exit__ = lambda *args: None
+        mock_open.return_value = mock_file
+
+        test_cases = [
+            ([{'aws_bucket': 'testbucket',
+               'aws_endpoint': '',
+               'aws_identity': 'identity',
+               'aws_secret': 'secret',
+               'account': 'AUTH_test',
+               'protocol': 's3',
+               'status': {
+                   'moved_count': 10,
+                   'scanned_count': 20}}],
+             {'marker': 'marker', 'moved_count': 1000, 'scanned_count': 1000,
+              'reset_stats': False},
+             {'moved_count': 1010, 'scanned_count': 1020}),
+            ([{'aws_bucket': 'testbucket',
+               'aws_endpoint': '',
+               'aws_identity': 'identity',
+               'aws_secret': 'secret',
+               'account': 'AUTH_test',
+               'protocol': 's3',
+               'status': {
+                   'moved_count': 10,
+                   'scanned_count': 20}}],
+             {'marker': 'marker', 'moved_count': 1000, 'scanned_count': 1000,
+              'reset_stats': True},
+             {'moved_count': 1000, 'scanned_count': 1000}),
+            ([],
+             {'marker': 'marker', 'moved_count': 1000, 'scanned_count': 1000,
+              'reset_stats': False},
+             {'moved_count': 1000, 'scanned_count': 1000}),
+        ]
+        for status_list, test_params, write_status in test_cases:
+            mock_file.reset_mock()
+            status = s3_sync.migrator.Status('/fake/location')
+            status.status_list = status_list
+
+            if not status_list:
+                migration = {}
+            else:
+                migration = dict(status_list[0])
+
+            status.save_migration(
+                migration, test_params['marker'], test_params['moved_count'],
+                test_params['scanned_count'], test_params['reset_stats'])
+            write_status['marker'] = test_params['marker']
+            migration['status'] = write_status
+            # gets the 1st argument in the call argument list
+            written = ''.join([call[1][0] for call in
+                               mock_file.write.mock_calls])
+            self.assertEqual(json.loads(written), [migration])
+
+    @mock.patch('s3_sync.migrator.os.mkdir')
+    @mock.patch('s3_sync.migrator.open')
+    def test_status_save_create(self, mock_open, mock_mkdir):
+        mock_file = mock.Mock()
+        mock_file.__enter__ = lambda *args: mock_file
+        mock_file.__exit__ = lambda *args: None
+        mock_open.side_effect = [IOError(errno.ENOENT, 'not found'), mock_file]
+
+        status = s3_sync.migrator.Status('/fake/location')
+        status.status_list = []
+        status.save_migration({}, 'marker', 100, 100, False)
+        mock_mkdir.assert_called_once_with('/fake', mode=0755)
+        written = ''.join([call[1][0] for call in mock_file.write.mock_calls])
+        self.assertEqual(json.loads(written),
+                         [{'status': {'marker': 'marker', 'moved_count': 100,
+                                      'scanned_count': 100}}])
+
+    @mock.patch('s3_sync.migrator.os.mkdir')
+    @mock.patch('s3_sync.migrator.open')
+    def test_status_save_create_raises(self, mock_open, mock_mkdir):
+        mock_file = mock.Mock()
+        mock_file.__enter__ = lambda *args: mock_file
+        mock_file.__exit__ = lambda *args: None
+        mock_open.side_effect = IOError(errno.ENOENT, 'not found')
+        mock_mkdir.side_effect = IOError(errno.EPERM, 'denied')
+
+        status = s3_sync.migrator.Status('/fake/location')
+        status.status_list = []
+        with self.assertRaises(IOError) as cm:
+            status.save_migration({}, 'marker', 100, 100, False)
+        mock_mkdir.assert_called_once_with('/fake', mode=0755)
+        self.assertEqual(errno.EPERM, cm.exception.errno)
+
+    @mock.patch('s3_sync.migrator.open')
+    def test_status_save_raises(self, mock_open):
+        mock_open.side_effect = IOError(errno.EPERM, 'denied')
+        status = s3_sync.migrator.Status('/fake/location')
+        status.status_list = []
+        with self.assertRaises(IOError) as err:
+            status.save_migration({}, 'marker', 100, 100, False)
+        self.assertEqual(errno.EPERM, err.exception.errno)
+
+
+class TestMigrator(unittest.TestCase):
+    def setUp(self):
+        config = {'aws_bucket': 'bucket',
+                  'account': 'AUTH_test'}
+        self.swift_client = mock.Mock()
+        pool = mock.Mock()
+        pool.item.return_value.__enter__ = lambda *args: self.swift_client
+        pool.item.return_value.__exit__ = lambda *args: None
+        pool.max_size = 11
+        self.migrator = s3_sync.migrator.Migrator(
+            config, None, 1000, pool, None, 0, 1)
+        self.migrator.logger = mock.Mock()
+        self.migrator.status = mock.Mock()
+
+    @mock.patch('s3_sync.migrator.create_provider')
+    def test_single_container(self, create_provider_mock):
+        self.migrator._next_pass = mock.Mock()
+        self.migrator.next_pass()
+        create_provider_mock.assert_called_once_with(
+            {'aws_bucket': 'bucket', 'container': 'bucket',
+             'account': 'AUTH_test'},
+            self.migrator.ic_pool.max_size, False)
+        self.migrator._next_pass.assert_called_once_with()
+
+    @mock.patch('s3_sync.migrator.create_provider')
+    def test_all_containers(self, create_provider_mock):
+        provider_mock = mock.Mock()
+        buckets = [{'name': 'bucket'}]
+        provider_mock.list_buckets.return_value = ProviderResponse(
+            True, 200, [], buckets)
+
+        def check_provider(config, conns, per_account):
+            # We have to check the arguments this way, as otherwise the
+            # dictionary gets mutated and assert_called_once_with check will
+            # fail.
+            self.assertEqual('/*', config['aws_bucket'])
+            self.assertEqual('.', config['container'])
+            self.assertEqual(self.migrator.ic_pool.max_size, conns)
+            return provider_mock
+
+        create_provider_mock.side_effect = check_provider
+        self.migrator.config = {'aws_bucket': '/*'}
+        self.migrator._next_pass = mock.Mock()
+        self.migrator.next_pass()
+        self.assertEqual(buckets[0]['name'], self.migrator.config['container'])
+        self.assertEqual(buckets[0]['name'],
+                         self.migrator.config['aws_bucket'])
+        self.assertEqual(buckets[0]['name'], provider_mock.aws_bucket)
+
+    @mock.patch('s3_sync.migrator.create_provider')
+    def test_list_buckets_error(self, create_provider_mock):
+        create_provider_mock.return_value.list_buckets.return_value = \
+            ProviderResponse(False, 404, [], 'Not Found')
+        self.migrator.config = {'aws_bucket': '/*'}
+        with self.assertRaises(s3_sync.migrator.MigrationError):
+            self.migrator.next_pass()
+        self.assertEqual({'aws_bucket': '/*', 'container': '.'},
+                         self.migrator.config)
+        create_provider_mock.assert_called_once_with(
+            {'aws_bucket': '/*', 'container': '.'},
+            self.migrator.ic_pool.max_size, False)
+
+    @mock.patch('s3_sync.migrator.create_provider')
+    def test_migrate_objects(self, create_provider_mock):
+        provider = create_provider_mock.return_value
+        self.migrator.status.get_migration.return_value = {}
+
+        tests = [{
+            'objects': {
+                'foo': {
+                    'remote_headers': {
+                        'x-amz-meta-custom': 'custom',
+                        'last-modified': create_timestamp(1.5e9)},
+                    'expected_headers': {
+                        'x-object-meta-custom': 'custom',
+                        'x-timestamp': Timestamp(1.5e9).internal},
+                    'list-time': create_list_timestamp(1.5e9),
+                    'hash': 'etag'
+                },
+                'bar': {
+                    'remote_headers': {
+                        'x-amz-meta-custom': 'custom',
+                        'last-modified': create_timestamp(1.4e9)},
+                    'expected_headers': {
+                        'x-object-meta-custom': 'custom',
+                        'x-timestamp': Timestamp(1.4e9).internal},
+                    'list-time': create_list_timestamp(1.4e9),
+                    'hash': 'etag'
+                }
+            },
+        }, {
+            'objects': {
+                'foo': {
+                    'remote_headers': {
+                        'x-object-meta-custom': 'custom',
+                        'last-modified': create_timestamp(1.5e9)},
+                    'expected_headers': {
+                        'x-object-meta-custom': 'custom',
+                        'x-timestamp': Timestamp(1.5e9).internal},
+                    'list-time': create_list_timestamp(1.5e9),
+                    'hash': 'etag'
+                },
+                'bar': {
+                    'remote_headers': {
+                        'x-object-meta-custom': 'custom',
+                        'last-modified': create_timestamp(1.4e9)},
+                    'expected_headers': {
+                        'x-object-meta-custom': 'custom',
+                        'x-timestamp': Timestamp(1.4e9).internal},
+                    'list-time': create_list_timestamp(1.4e9),
+                    'hash': 'etag'
+                }
+            },
+            'config': {
+                'aws_bucket': 'container',
+                'protocol': 'swift'
+            }
+        }, {
+            'objects': {
+                'foo': {
+                    'remote_headers': {
+                        'x-object-meta-custom': 'custom',
+                        'last-modified': create_timestamp(1.5e9)},
+                    'expected_headers': {
+                        'x-object-meta-custom': 'custom',
+                        'x-timestamp': Timestamp(1.5e9).internal},
+                    'list-time': create_list_timestamp(1.5e9),
+                    'hash': 'etag'
+                },
+                'bar': {
+                    'remote_headers': {
+                        'x-object-meta-custom': 'custom',
+                        'last-modified': create_timestamp(1.4e9)},
+                    'expected_headers': {
+                        'x-object-meta-custom': 'custom',
+                        'x-timestamp': Timestamp(1.4e9).internal},
+                    'list-time': create_list_timestamp(1.4e9),
+                    'hash': 'etag'
+                }
+            },
+            'config': {
+                'aws_bucket': 'container',
+                'protocol': 'swift'
+            },
+            'local_objects': [
+                {'name': 'foo',
+                 'last_modified': create_list_timestamp(1.5e9),
+                 'hash': 'etag'},
+                {'name': 'bar',
+                 'last_modified': create_list_timestamp(1.4e9),
+                 'hash': 'etag'}
+            ],
+            'migrated': []
+        }, {
+            'objects': {
+                'foo': {
+                    'remote_headers': {
+                        'x-object-meta-custom': 'custom',
+                        'last-modified': create_timestamp(1.5e9)},
+                    'expected_headers': {
+                        'x-object-meta-custom': 'custom',
+                        'x-timestamp': Timestamp(1.5e9).internal},
+                    'list-time': create_list_timestamp(1.5e9),
+                    'hash': 'etag'
+                },
+                'bar': {
+                    'remote_headers': {
+                        'x-object-meta-custom': 'custom',
+                        'last-modified': create_timestamp(1.4e9)},
+                    'expected_headers': {
+                        'x-object-meta-custom': 'custom',
+                        'x-timestamp': Timestamp(1.4e9).internal},
+                    'list-time': create_list_timestamp(1.4e9),
+                    'hash': 'etag'
+                }
+            },
+            'config': {
+                'aws_bucket': 'container',
+                'protocol': 'swift'
+            },
+            'local_objects': [
+                {'name': 'foo',
+                 'last_modified': create_list_timestamp(1.4e9),
+                 'hash': 'old-etag'},
+                {'name': 'bar',
+                 'last_modified': create_list_timestamp(1.3e9),
+                 'hash': 'old-etag'}
+            ],
+            'migrated': ['foo', 'bar']
+        }]
+        config = self.migrator.config
+
+        for test in tests:
+            objects = test['objects']
+            if 'migrated' not in test:
+                migrated = objects.keys()
+            else:
+                migrated = test['migrated']
+            test_config = dict(config)
+            for k, v in test.get('config', {}).items():
+                test_config[k] = v
+                if k == 'aws_bucket':
+                    test_config['container'] = v
+            self.migrator.config = test_config
+
+            provider.reset_mock()
+            self.swift_client.reset_mock()
+            self.swift_client.container_exists.return_value = True
+
+            local_objects = test.get('local_objects', [])
+
+            def get_object(name, **args):
+                if name not in objects.keys():
+                    raise RuntimeError('Unknown object: %s' % name)
+                if name not in migrated:
+                    raise RuntimeError('Object should not be moved %s' % name)
+                return ProviderResponse(
+                    True, 200, objects[name]['remote_headers'],
+                    StringIO('object body'))
+
+            provider.list_objects.return_value = (
+                200, [{'name': name,
+                       'last_modified': objects[name]['list-time'],
+                       'hash': objects[name]['hash']}
+                      for name in objects.keys()])
+            provider.get_object.side_effect = get_object
+            self.swift_client.iter_objects.return_value = iter(local_objects)
+
+            self.migrator.next_pass()
+
+            self.swift_client.upload_object.assert_has_calls(
+                [mock.call(mock.ANY, self.migrator.config['account'],
+                           self.migrator.config['aws_bucket'], name,
+                           objects[name]['expected_headers'])
+                 for name in migrated])
+
+            for call in self.swift_client.upload_object.mock_calls:
+                self.assertEqual('object body', ''.join(call[1][0]))
+
+    @mock.patch('s3_sync.migrator.create_provider')
+    def test_migrate_objects_reset(self, create_provider_mock):
+        provider = create_provider_mock.return_value
+
+        self.migrator.status = mock.Mock()
+        self.migrator.status.get_migration.return_value = {'marker': 'zzz'}
+        provider.list_objects.return_value = (200, [])
+        self.swift_client.iter_objects.return_value = iter([])
+
+        self.migrator.next_pass()
+        provider.list_objects.assert_has_calls(
+            [mock.call('zzz', self.migrator.work_chunk, None, native=True),
+             mock.call(None, self.migrator.work_chunk, None, native=True)])
+
+    @mock.patch('s3_sync.migrator.create_provider')
+    def test_missing_container(self, create_provider_mock):
+        tests = [{'protocol': 'swift'}, {}]
+        provider = create_provider_mock.return_value
+        config = self.migrator.config
+
+        for test in tests:
+            test_config = dict(config, **test)
+            self.migrator.config = test_config
+
+            provider.reset_mock()
+            self.swift_client.reset_mock()
+            provider.list_objects.return_value = (200, [{'name': 'test'}])
+            provider.get_object.return_value = ProviderResponse(
+                True, 200, {'last-modified': create_timestamp(1.5e9)},
+                StringIO(''))
+
+            if self.migrator.config.get('protocol') == 'swift':
+                resp = mock.Mock()
+                resp.status = 200
+                resp.headers = {'x-container-meta-foo': 'foo'}
+                provider.head_bucket.return_value = resp
+                headers = resp.headers
+            else:
+                headers = {}
+
+            self.swift_client.iter_objects.return_value = iter([])
+            self.swift_client.container_exists.side_effect = (False, True)
+
+            self.migrator.status.get_migration.return_value = {}
+
+            self.migrator.next_pass()
+            if test.get('protocol') == 'swift':
+                provider.list_objects.assert_called_once_with(
+                    None, self.migrator.work_chunk, None)
+                provider.head_bucket.assert_called_once_with(
+                    self.migrator.config['container'])
+            else:
+                provider.list_objects.assert_called_once_with(
+                    None, self.migrator.work_chunk, None, native=True)
+            self.swift_client.create_container.assert_called_once_with(
+                self.migrator.config['account'],
+                self.migrator.config['container'], headers)
+
+    @mock.patch('s3_sync.migrator.create_provider')
+    def test_head_container_error(self, create_provider_mock):
+        self.migrator.config['protocol'] = 'swift'
+
+        provider = create_provider_mock.return_value
+        provider.list_objects.return_value = (200, [{'name': 'test'}])
+
+        resp = mock.Mock()
+        resp.status = 404
+        resp.headers = {}
+        provider.head_bucket.return_value = resp
+        self.swift_client.iter_objects.return_value = iter([])
+        self.swift_client.container_exists.return_value = False
+
+        self.migrator.status.get_migration.return_value = {}
+
+        with self.assertRaises(s3_sync.migrator.MigrationError):
+            self.migrator.next_pass()
+        provider.head_bucket.assert_called_once_with(
+            self.migrator.config['container'])
+
+    @mock.patch('s3_sync.migrator.time')
+    @mock.patch('s3_sync.migrator.create_provider')
+    def test_create_container_timeout(self, create_provider_mock, time_mock):
+        provider = create_provider_mock.return_value
+        provider.list_objects.return_value = (200, [{'name': 'test'}])
+
+        resp = mock.Mock()
+        resp.status = 200
+        resp.headers = {}
+        provider.head_bucket.return_value = resp
+        self.swift_client.iter_objects.return_value = iter([])
+        self.swift_client.container_exists.return_value = False
+
+        time_mock.time.side_effect = (0, 0, 1)
+        self.migrator.status.get_migration.return_value = {}
+
+        with self.assertRaises(s3_sync.migrator.MigrationError) as e:
+            self.migrator.next_pass()
+            self.assertEqual('Timeout', e.msg.split()[0])
+        self.swift_client.create_container.assert_called_once_with(
+            self.migrator.config['account'], self.migrator.config['container'],
+            {})
+        self.swift_client.container_exists.assert_has_calls(
+            [mock.call(self.migrator.config['account'],
+                       self.migrator.config['container'])] * 2)
+
+    @mock.patch('s3_sync.migrator.create_provider')
+    def test_migrate_slo(self, create_provider_mock):
+        self.migrator.config['protocol'] = 'swift'
+        provider = create_provider_mock.return_value
+        self.migrator.status.get_migration.return_value = {}
+        segments_container = '/slo-segments'
+
+        manifest = [{'name': '/'.join([segments_container, 'part1'])},
+                    {'name': '/'.join([segments_container, 'part2'])}]
+
+        objects = {
+            'slo': {
+                'remote_headers': {
+                    'x-object-meta-custom': 'slo-meta',
+                    'last-modified': create_timestamp(1.5e9),
+                    'x-static-large-object': True},
+                'expected_headers': {
+                    'x-object-meta-custom': 'slo-meta',
+                    'x-timestamp': Timestamp(1.5e9).internal,
+                    'x-static-large-object': True,
+                    'Content-Length': len(json.dumps(manifest))}
+            },
+            'part1': {
+                'remote_headers': {
+                    'x-object-meta-part': 'part-1',
+                    'last-modified': create_timestamp(1.4e9)},
+                'expected_headers': {
+                    'x-object-meta-part': 'part-1',
+                    'x-timestamp': Timestamp(1.4e9).internal}
+            },
+            'part2': {
+                'remote_headers': {
+                    'x-object-meta-part': 'part-2',
+                    'last-modified': create_timestamp(1.1e9)},
+                'expected_headers': {
+                    'x-object-meta-part': 'part-2',
+                    'x-timestamp': Timestamp(1.1e9).internal}
+            }
+        }
+
+        containers = {segments_container: False,
+                      self.migrator.config['container']: False}
+
+        def container_exists(_, container):
+            return containers[container]
+
+        def create_container(_, container, headers):
+            containers[container] = True
+
+        def get_object(name, **args):
+            if name not in objects.keys():
+                raise RuntimeError('Unknown object: %s' % name)
+            return ProviderResponse(
+                True, 200, objects[name]['remote_headers'],
+                StringIO('object body'))
+
+        def head_object(name, container):
+            if container != segments_container[1:]:
+                raise RuntimeError('wrong container: %s' % container)
+            if name not in objects.keys():
+                raise RuntimeError('unknown object: %s' % name)
+            resp = mock.Mock()
+            resp.status = 200
+            resp.headers = objects[name]['remote_headers']
+            return resp
+
+        self.swift_client.container_exists.side_effect = container_exists
+        self.swift_client.create_container.side_effect = create_container
+        swift_head_resp = mock.Mock()
+        swift_head_resp.status_int = 404
+        self.swift_client.get_object_metadata.side_effect = UnexpectedResponse(
+            '', swift_head_resp)
+
+        bucket_resp = mock.Mock()
+        bucket_resp.status = 200
+        bucket_resp.headers = {}
+
+        provider.head_bucket.return_value = bucket_resp
+        provider.list_objects.return_value = (
+            200, [{'name': 'slo'}])
+        provider.get_object.side_effect = get_object
+        provider.head_object.side_effect = head_object
+        provider.get_manifest.return_value = manifest
+        self.swift_client.iter_objects.return_value = iter([])
+
+        self.migrator.next_pass()
+
+        self.swift_client.upload_object.assert_has_calls(
+            [mock.call(mock.ANY, self.migrator.config['account'],
+                       'slo-segments',
+                       'part1',
+                       objects['part1']['expected_headers']),
+             mock.call(mock.ANY, self.migrator.config['account'],
+                       'slo-segments',
+                       'part2',
+                       objects['part2']['expected_headers']),
+             mock.call(mock.ANY, self.migrator.config['account'],
+                       self.migrator.config['container'],
+                       'slo',
+                       objects['slo']['expected_headers'])])
+
+        for call in self.swift_client.upload_object.mock_calls:
+            body, acct, cont, obj, headers = call[1]
+            if obj.startswith('part'):
+                self.assertEqual(segments_container[1:], cont)
+                self.assertEqual('object body', ''.join(body))
+            else:
+                self.assertEqual(self.migrator.config['container'], cont)
+                self.assertEqual(manifest, json.loads(''.join(body)))
 
 
 class TestMain(unittest.TestCase):
