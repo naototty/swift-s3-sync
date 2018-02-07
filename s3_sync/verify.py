@@ -46,18 +46,42 @@ def validate_bucket(provider, swift_key, create_bucket):
     if create_bucket:
         # This should only be necessary on Swift; reach down to the client
         with provider.client_pool.get_client() as client:
-            client.client.put_container(provider.aws_bucket)
+            result = client.client.put_container(provider.aws_bucket)
+        if result is not None:
+            return result
+
     internal_client = FakeInternalClient('cloud sync test', {})
-    provider.upload_object(swift_key, 0, internal_client)
-    provider.update_metadata(swift_key, {'X-Object-Meta-Cloud-Sync': 'fabcab',
-                                         'content-type': 'text/plain'})
-    provider.head_object(swift_key)
-    provider.delete_object(swift_key)
-    provider.list_objects(marker='', limit=1, prefix='', delimiter='')
+    result = provider.upload_object(swift_key, 0, internal_client)
+    if result is not None:
+        return result
+
+    result = provider.update_metadata(swift_key, {
+        'X-Object-Meta-Cloud-Sync': 'fabcab',
+        'content-type': 'text/plain'})
+    if result is not None:
+        return result
+
+    result = provider.head_object(swift_key)
+    if result.status != 200:
+        return 'Unexpected status code checking write: %s' % result.status
+    if result.headers['x-object-meta-cloud-sync'] != 'fabcab':
+        return 'Unexpected headers after setting metadata: %s' % result.headers
+
+    result = provider.delete_object(swift_key)
+    if result is not None:
+        return result
+
+    status, objects = provider.list_objects(
+        marker='', limit=1, prefix='', delimiter='')
+    if status != 200:
+        return 'Unexpected status code listing bucket: %s' % status
+
     if create_bucket:
         # Clean up after ourselves
         with provider.client_pool.get_client() as client:
-            client.client.delete_container(provider.aws_bucket)
+            result = client.client.delete_container(provider.aws_bucket)
+        if result is not None:
+            return result
 
 
 def main(args=None):
@@ -96,8 +120,11 @@ def main(args=None):
                 swift_key = 'fabcab/cloud_sync_test'
             else:
                 swift_key = 'cloud_sync_test_object'
-            validate_bucket(provider, swift_key,
-                            args.protocol == 'swift' and args.bucket == '/*')
+            result = validate_bucket(
+                provider, swift_key,
+                args.protocol == 'swift' and args.bucket == '/*')
+            if result is not None:
+                return result
     except botocore.exceptions.ClientError as e:
         if e.response['Error']['Code'] in ('SignatureDoesNotMatch', '403'):
             return ('Invalid credentials. Please check the Access Key '
