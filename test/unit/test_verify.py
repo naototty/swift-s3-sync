@@ -20,8 +20,107 @@ import unittest
 from s3_sync.verify import main
 
 
+@mock.patch('s3_sync.verify.validate_bucket', return_value=object())
+class TestMainTrackProvider(unittest.TestCase):
+    def test_aws_adjusts_endpoint(self, mock_validate):
+        exit_arg = main([
+            '--protocol', 's3',
+            '--endpoint', 'https://s3.amazonaws.com',
+            '--username', 'access id',
+            '--password', 'secret key',
+            '--bucket', 'some-bucket',
+        ])
+        self.assertIs(exit_arg, mock_validate.return_value)
+        self.assertEqual([mock.ANY], mock_validate.mock_calls)
+        provider, swift_key, create_bucket = mock_validate.mock_calls[0][1]
+        self.assertEqual({
+            k: v for k, v in provider.settings.items()
+            if k.startswith('aws_') or k in ('protocol',)
+        }, {
+            'protocol': 's3',
+            'aws_endpoint': 'https://s3.amazonaws.com',
+            'aws_identity': 'access id',
+            'aws_secret': 'secret key',
+            'aws_bucket': 'some-bucket',
+        })
+        self.assertEqual(swift_key, 'fabcab/cloud_sync_test')
+        self.assertFalse(create_bucket)
+
+    def test_google_leaves_endpoint_alone(self, mock_validate):
+        exit_arg = main([
+            '--protocol', 's3',
+            '--endpoint', 'https://storage.googleapis.com',
+            '--username', 'access id',
+            '--password', 'secret key',
+            '--bucket', 'some-bucket',
+        ])
+        self.assertIs(exit_arg, mock_validate.return_value)
+        self.assertEqual([mock.ANY], mock_validate.mock_calls)
+        provider, swift_key, create_bucket = mock_validate.mock_calls[0][1]
+        self.assertEqual({
+            k: v for k, v in provider.settings.items()
+            if k.startswith('aws_') or k in ('protocol',)
+        }, {
+            'protocol': 's3',
+            'aws_endpoint': 'https://storage.googleapis.com',
+            'aws_identity': 'access id',
+            'aws_secret': 'secret key',
+            'aws_bucket': 'some-bucket',
+        })
+        self.assertEqual(swift_key, 'fabcab/cloud_sync_test')
+        self.assertFalse(create_bucket)
+
+    def test_swift_one_bucket(self, mock_validate):
+        exit_arg = main([
+            '--protocol', 'swift',
+            '--endpoint', 'https://saio:8080/auth/v1.0',
+            '--username', 'access id',
+            '--password', 'secret key',
+            '--bucket', 'some-bucket',
+        ])
+        self.assertIs(exit_arg, mock_validate.return_value)
+        self.assertEqual([mock.ANY], mock_validate.mock_calls)
+        provider, swift_key, create_bucket = mock_validate.mock_calls[0][1]
+        self.assertEqual({
+            k: v for k, v in provider.settings.items()
+            if k.startswith('aws_') or k in ('protocol',)
+        }, {
+            'protocol': 'swift',
+            'aws_endpoint': 'https://saio:8080/auth/v1.0',
+            'aws_identity': 'access id',
+            'aws_secret': 'secret key',
+            'aws_bucket': 'some-bucket',
+        })
+        self.assertEqual(swift_key, 'cloud_sync_test_object')
+        self.assertFalse(create_bucket)
+
+    def test_swift_all_buckets(self, mock_validate):
+        exit_arg = main([
+            '--protocol', 'swift',
+            '--endpoint', 'https://saio:8080/auth/v1.0',
+            '--username', 'access id',
+            '--password', 'secret key',
+            '--bucket', '/*',
+        ])
+        self.assertIs(exit_arg, mock_validate.return_value)
+        self.assertEqual([mock.ANY], mock_validate.mock_calls)
+        provider, swift_key, create_bucket = mock_validate.mock_calls[0][1]
+        self.assertEqual({
+            k: v for k, v in provider.settings.items()
+            if k.startswith('aws_') or k in ('protocol',)
+        }, {
+            'protocol': 'swift',
+            'aws_endpoint': 'https://saio:8080/auth/v1.0',
+            'aws_identity': 'access id',
+            'aws_secret': 'secret key',
+            'aws_bucket': u'.cloudsync_test_container-\U0001f44d',
+        })
+        self.assertEqual(swift_key, 'cloud_sync_test_object')
+        self.assertTrue(create_bucket)
+
+
 @mock.patch('s3_sync.base_sync.BaseSync.HttpClientPool.get_client')
-class TestMain(unittest.TestCase):
+class TestMainTrackClientCalls(unittest.TestCase):
     def assert_calls(self, mock_obj, calls):
         actual_calls = iter(mock_obj.mock_calls)
         for i, expected in enumerate(calls):
