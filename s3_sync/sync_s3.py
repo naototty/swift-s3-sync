@@ -184,7 +184,6 @@ class SyncS3(BaseSync):
             # sanity check
             raise ValueError('Expected GET or HEAD, not %s' % req.method)
 
-        s3_key = self.get_s3_name(swift_key)
         headers_to_copy = ('Range', 'If-Match', 'If-None-Match',
                            'If-Modified-Since', 'If-Unmodified-Since')
         kwargs = {}
@@ -192,9 +191,9 @@ class SyncS3(BaseSync):
             header.replace('-', ''): req.headers[header]
             for header in headers_to_copy if header in req.headers})
         if req.method == 'GET':
-            response = self.get_object(s3_key, **kwargs)
+            response = self.get_object(swift_key, **kwargs)
         else:
-            response = self.head_object(s3_key, **kwargs)
+            response = self.head_object(swift_key, **kwargs)
 
         if not response.success:
             return response.to_wsgi()
@@ -208,7 +207,9 @@ class SyncS3(BaseSync):
 
         return response.to_wsgi()
 
-    def head_object(self, key, bucket=None, **options):
+    def head_object(self, key, bucket=None, native=False, **options):
+        if not native:
+            key = self.get_s3_name(key)
         if bucket is None:
             bucket = self.aws_bucket
         response = self._call_boto(
@@ -216,7 +217,9 @@ class SyncS3(BaseSync):
         response.body = ['']
         return response
 
-    def get_object(self, key, bucket=None, **options):
+    def get_object(self, key, bucket=None, native=False, **options):
+        if not native:
+            key = self.get_s3_name(key)
         if bucket is None:
             bucket = self.aws_bucket
         return self._call_boto(

@@ -310,7 +310,7 @@ class Migrator(object):
         return moved
 
     def _migrate_object(self, container, key):
-        args = {'bucket': container}
+        args = {'bucket': container, 'native': True}
         if self.config.get('protocol', '') == 'swift':
             args['resp_chunk_size'] = 65536
         resp = self.provider.get_object(key, **args)
@@ -351,7 +351,7 @@ class Migrator(object):
                         continue
             if meta:
                 resp = self.provider.head_object(
-                    segment_key, container)
+                    segment_key, container, native=True)
                 if resp.status != 200:
                     raise MigrationError('Failed to HEAD %s/%s' % (
                         container, segment_key))
