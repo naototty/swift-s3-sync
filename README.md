@@ -6,7 +6,7 @@ Swift](https://github.com/openstack/swift)
 deployments and [Amazon S3](https://aws.amazon.com/s3) (or S3-clones). The
 project initially allowed for propagating any changes from Swift to S3 -- PUT,
 DELETE, or POST -- in an asynchronous fashion. Since then, it has evolved to
-support a limited set of data policy options to express the lifecycle of the
+support a limited set of data policy options to express the life cycle of the
 data and transparent access to data stored in S3.
 
 Notable features:
@@ -92,18 +92,18 @@ This middleware should be in the pipeline before the DLO/SLO middleware.
 
 ### Trying it out
 
-To try this out, you can build the docker container used for integration tests:
-`docker build -t swift-s3-sync test/container`. It uses S3Proxy, backed by the
-filesystem and uses a Swift all-in-one docker container as the base.
-
-The container must map the swift-s3-sync source tree when launching:
+If you have docker and docker-compose already you can easily get started in the root directory:
 
 ```
-docker run -P -d -v `pwd`:/swift-s3-sync swift-s3-sync
+docker-compose up -d
 ```
 
-After this, we can check the port mappings: `docker port <container name>`.
-
+Our current development/test environment only defines one container
+`swift-s3-sync`.  It is based on the
+[bouncestorage/swift-aio](https://hub.docker.com/r/bouncestorage/swift-aio/).
+The Dockerfile adds S3Proxy, backed by the file system and uses a Swift
+all-in-one docker container as the base.  The Compose file maps the current
+source tree into the container, so that it operates on your current state.
 Port 8080 is the Swift Proxy server, whereas 10080 is the S3Proxy.
 
 Tests pre-configure multiple
@@ -114,26 +114,47 @@ how swift-s3-sync works. Using `python-swiftclient`, that would look something
 like this:
 
 ```
-swift -A http://localhost:<mapped 8080>/auth/v1.0 -U test:tester -K testing post sync-s3
-swift -A http://localhost:<mapped 8080>/auth/v1.0 -U test:tester -K testing post archive-s3
-swift -A http://localhost:<mapped 8080>/auth/v1.0 -U test:tester -K testing put sync-s3 <file>
-swift -A http://localhost:<mapped 8080>/auth/v1.0 -U test:tester -K testing put archive-s3 <file>
+export ST_AUTH=http://localhost:8080/auth/v1.0
+export ST_USER=test:tester
+export ST_KEY=testing
+swift post sync-s3
+swift post archive-s3
+swift upload sync-s3 README.md
+swift upload archive-s3 README.md
 ```
 
-After this, we can examine the state of our fake S3 content:
+In the root of the project we provide an example s3cfg file you can use with
+s3cmd to talk to your S3Proxy configured and running in the container:
 
 ```
-s3cmd ls -r s3://s3-sync-stest/
-```
-
-You should see two objects in the bucket. For s3cmd, you can use the following
-configuration:
-
-```
+[default]
 access_key=s3-sync-test
 secret_key=s3-sync-test
-host_base=localhost:<mapped 10080>
-host_bucket=localhost:<mapped 10080>
+host_base=localhost:10080
+host_bucket=localhost:10080
+use_https = False
+```
+
+If it makes life easier you can copy `s3cfg` to `~/.s3cfg` and s3cmd will pick
+it up automatically.
+
+> note: if you remapped your exposed ports with an custom compose file, you
+> have to fix ST_AUTH and your s3cfg host options to which ever host port you
+> mapped to 8080 and 10080 in the container.
+
+After this, we can create the bucket, and shortly examine the synced data
+
+```
+s3cmd -c s3cfg mb s3://s3-sync-test
+s3cmd -c s3cfg ls -r s3://s3-sync-test
+```
+
+You should see two objects in the bucket.
+
+When you're done you can always destroy the container:
+
+```
+docker rm -sf
 ```
 
 ### Running tests
@@ -141,21 +162,44 @@ host_bucket=localhost:<mapped 10080>
 
 #### Unit tests
 
-All commands below assume you're running them in the swift-s3-sync directory.
+If you have the development environment running, it will have all the
+dependencies already squared away, you can run arbitrary commands in the
+pre-configured development environment, including `/bin/bash` or the test
+suite:
 
-It is recommended to setup virtualenv when working on this project. You can set
-it up as follows: `virtualenv venv`. After that, dependencies can be setup with:
-`./venv/bin/pip install -r requirements.txt`. The test dependencies can be
-similarly setup through:
-`./venv/bin/pip install -r requirements-test.txt`.
+```
+docker-compose exec swift-s3-sync nosetests /swift-s3-sync/test/unit
+```
 
-To run unit tests, you can simply run `nose`: `./venv/bin/nosetests`. The unit
-tests will require swift and container-crawler to be in your
-`PYTHONPATH`. Typically, I run them with the following convoluted line:
-`PYTHONPATH=~/swift:~/container-crawler ./venv/bin/nosetests`.
-`PYTHONPATH=~/swift:~/container-crawler ./venv/bin/nosetests`.
-This assumes that all of the dependencies are in your home directory. You can
-adjust this if they live in other places.
+If you want to try to get all the dependencies squared away on your host, start
+here.  All commands below assume you're running them in the swift-s3-sync
+directory.
+
+It is recommended to setup virtualenv when working on this project:
+
+```
+virtualenv venv
+```
+
+After that, dependencies:
+
+```
+./venv/bin/pip install -r requirements.txt
+./venv/bin/pip install -r requirements-test.txt
+```
+
+The remaining dependencies include swift and container-crawler, you'll need to
+get their dependencies installed and add them to your `PYTHONPATH`:
+
+```
+export PYTHONPATH=$PYTHONPATH:~/swift:~/container-crawler
+```
+
+> note: if you have the swift and container-crawler sources somewhere else you
+> will need to change the paths
+
+Then just run unit tests with `nosetests test/unit`
+
 
 #### Integration tests
 
@@ -163,30 +207,33 @@ For integration tests, we need access to a Swift cluster and some sort of an S3
 provider. Currently, the tests use a Docker container to provide Swift and are
 configured to talk to [S3Proxy](https://github.com/andrewgaul/s3proxy).
 
-To build the test container, run:
-`docker build -t swift-s3-sync test/container`
+Start the provided development environment with:
 
-Once this completes, you will have a docker container tagged `swift-s3-sync`.
-Start the container with:
+```
+docker-compose up -d
+```
 
-`docker run -P -d -v <swift-s3-sync checkout>:/swift-s3-sync swift-s3-sync`.
 The container will be started in the background (`-d`) and will expose ports
-8080 and 10080 (`-P`) to connect to Swift and S3Proxy, respectively. It is based
-on the
-[bouncestorage/swift-aio](https://hub.docker.com/r/bouncestorage/swift-aio/).
-The `-v` option maps the current source tree into the container, so that it
-operates on your current state.
+8080 and 10080 to connect to Swift and S3Proxy, respectively.
 
-NOTE: the services do not restart on code changes. You can either manually
-stop/start the swift-s3-sync daemon (and Swift proxy if you're working on the
-shunt), or stop/start the contianer.
+> note: the services do not restart on code changes. You can either manually
+> stop/start the swift-s3-sync daemon (and Swift proxy if you're working on the
+> shunt), or just run `docker-compose restart`.
 
 The cloud sync configuration for the tests is defined in
 `test/container/swift-s3-sync.conf`. In particular, there are mappings for S3
 sync and archive policies and the same for Swift. The S3 mappings point to
 S3Proxy running on the host machine, listening on port 10080.
 
-Once you have S3Proxy and the Docker container running, run the tests with:
+You can run integration tests in the container as well:
+
+```
+docker-compose exec -e DOCKER=true swift-s3-sync nosetests /swift-s3-sync/test/integration
+```
+
+With sufficient effort you might be able to get enough dependencies installed on
+your host to run the integration suite.
+
 ```
 ./venv/bin/nosetests test/integration
 ```
@@ -203,3 +250,46 @@ to keep state).
 
 If you would like to examine the logs from each of the services, all logs are in
 /var/log (e.g. /var/log/swift-s3-sync.log).
+
+### Working with Docker directly
+
+## Build
+
+To build the test container, run:
+`docker build -t swift-s3-sync test/container`
+
+To start the container, run:
+`docker run -P -d -v <swift-s3-sync checkout>:/swift-s3-sync swift-s3-sync`
+
+List running containers to inexpect port mappings:
+`docker ps -a`
+
+## Override ports
+
+Docker seems to do open ports with SO_REUSEPORT which can get confusing if you
+have another service also trying to accept on the ports we use.
+
+First copy the provided defualt `docker-compose.override.yml` to `docker-compose.custom.yml`
+
+Then edit to change your port mappings:
+
+```
+version: '3'
+services:
+  swift-s3-sync:
+    ports:
+     - "8090:8080"
+     - "10090:10080"
+```
+
+Here we've mapped the host port 8090 to the Swift proxy service running in the
+container on 8080 and host port 10090 to the S3Proxy service listening on 10080
+in the container.  You can edit your ST_AUTH env var and s3cfg as needed.
+
+You can you the provided `example.env` to tell tell docker-compose how to
+automatically overlay your customized ports:
+
+`cp example.env .env`
+
+Docker will automatically read the `.env` file and use your modified
+`docker-compose.custom.yml` to control the host port mapping.
