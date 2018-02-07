@@ -145,22 +145,26 @@ class BaseSync(object):
     def upload_object(self, name, storage_policy_index):
         raise NotImplementedError()
 
+    def update_metadata(self, swift_key, swift_meta):
+        raise NotImplementedError()
+
     def delete_object(self, name):
         raise NotImplementedError()
 
     def shunt_object(self, request, name):
         raise NotImplementedError()
 
-    def get_object(self, key, bucket=None, options={}):
+    def get_object(self, key, bucket=None, **options):
         raise NotImplementedError()
 
-    def head_object(self, key, bucket=None, options={}):
+    def head_object(self, key, bucket=None, **options):
         raise NotImplementedError()
 
-    def head_bucket(self, bucket, options={}):
+    def head_bucket(self, bucket, **options):
         raise NotImplementedError()
 
-    def list_objects(self, marker, limit, prefix, delimiter=None):
+    def list_objects(self, marker, limit, prefix, delimiter=None,
+                     native=False):
         raise NotImplementedError()
 
     def list_buckets(self):
