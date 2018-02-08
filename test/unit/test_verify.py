@@ -14,6 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 """
 
+from io import BytesIO
 import mock
 import unittest
 
@@ -22,6 +23,58 @@ from s3_sync.verify import main
 
 @mock.patch('s3_sync.verify.validate_bucket', return_value=object())
 class TestMainTrackProvider(unittest.TestCase):
+    def test_account_requires_swift(self, mock_validate):
+        msg = 'Invalid argument: account is only valid with swift protocol'
+        self.assertEqual(msg, main([
+            '--protocol', 's3',
+            '--endpoint', 'https://s3.amazonaws.com',
+            '--username', 'access id',
+            '--password', 'secret key',
+            '--account', 'AUTH_account',
+            '--bucket', 'some-bucket',
+        ]))
+        self.assertEqual(mock_validate.mock_calls, [])
+
+    def test_bucket_cant_have_slash(self, mock_validate):
+        msg = 'Invalid argument: slash is not allowed in container name'
+        self.assertEqual(msg, main([
+            '--protocol', 's3',
+            '--endpoint', 'https://s3.amazonaws.com',
+            '--username', 'access id',
+            '--password', 'secret key',
+            '--bucket', 'some/bucket',
+        ]))
+        self.assertEqual(mock_validate.mock_calls, [])
+
+    def test_missing_args(self, mock_validate):
+        def do_test(args, missing_arg):
+            with self.assertRaises(SystemExit), \
+                    mock.patch('sys.stderr', new_callable=BytesIO) as err:
+                main(args)
+            self.assertIn('argument %s is required' % missing_arg,
+                          err.getvalue())
+
+        do_test([
+            '--endpoint', 'https://s3.amazonaws.com',
+            '--username', 'access id',
+            '--password', 'secret key',
+        ], '--protocol')
+        do_test([
+            '--protocol', 's3',
+            '--username', 'access id',
+            '--password', 'secret key',
+        ], '--endpoint')
+        do_test([
+            '--protocol', 's3',
+            '--endpoint', 'https://s3.amazonaws.com',
+            '--password', 'secret key',
+        ], '--username')
+        do_test([
+            '--protocol', 's3',
+            '--endpoint', 'https://s3.amazonaws.com',
+            '--username', 'access id',
+        ], '--password')
+
     def test_aws_adjusts_endpoint(self, mock_validate):
         exit_arg = main([
             '--protocol', 's3',
