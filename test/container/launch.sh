@@ -46,6 +46,8 @@ cd /swift-s3-sync; pip install -e .
 
 python -m s3_sync --log-level debug \
     --config /swift-s3-sync/test/container/swift-s3-sync.conf &
+swift-s3-migrator --log-level debug \
+    --config /swift-s3-sync/test/container/swift-s3-sync.conf &
 
 /bin/bash /s3proxy/s3proxy \
     --properties /swift-s3-sync/test/container/s3proxy.properties \
