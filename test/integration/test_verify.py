@@ -71,6 +71,31 @@ class TestVerify(TestCloudSyncBase):
         ]))
 
     @swift_is_unchanged
+    def test_swift_admin_cross_account(self):
+        self.assertEqual(0, s3_sync.verify.main([
+            '--protocol=swift',
+            '--endpoint=' + self.SWIFT_CREDS['authurl'],
+            '--username=' + self.SWIFT_CREDS['admin']['user'],
+            '--password=' + self.SWIFT_CREDS['admin']['key'],
+            '--account=AUTH_test2',
+            '--bucket=' + self.swift_container,
+        ]))
+
+    @swift_is_unchanged
+    def test_swift_admin_wrong_account(self):
+        actual = s3_sync.verify.main([
+            '--protocol=swift',
+            '--endpoint=' + self.SWIFT_CREDS['authurl'],
+            '--username=' + self.SWIFT_CREDS['admin']['user'],
+            '--password=' + self.SWIFT_CREDS['admin']['key'],
+            '--account=AUTH_test',
+            '--bucket=' + self.swift_container,
+        ])
+        self.assertIn('404 Not Found', actual)
+        self.assertTrue(actual.startswith(
+            'Unexpected error validating credentials: Object PUT failed: '))
+
+    @swift_is_unchanged
     def test_swift_all_containers(self):
         self.assertEqual(0, s3_sync.verify.main([
             '--protocol=swift',

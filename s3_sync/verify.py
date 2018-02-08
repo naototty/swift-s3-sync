@@ -91,6 +91,7 @@ def main(args=None):
     parser.add_argument('--endpoint', required=True)
     parser.add_argument('--username', required=True)
     parser.add_argument('--password', required=True)
+    parser.add_argument('--account')
     parser.add_argument('--bucket')
     args = parser.parse_args(args)
     conf = {
@@ -100,8 +101,11 @@ def main(args=None):
         'aws_endpoint': args.endpoint,
         'aws_identity': args.username,
         'aws_secret': args.password,
+        'remote_account': args.account,
         'aws_bucket': args.bucket,
     }
+    if args.account and args.protocol != 'swift':
+        return 'Invalid argument: account is only valid with swift protocol'
     if args.bucket == '/*':
         conf['aws_bucket'] = u'.cloudsync_test_container-\U0001f44d'
     if urlparse.urlparse(args.endpoint).hostname.endswith('.amazonaws.com'):

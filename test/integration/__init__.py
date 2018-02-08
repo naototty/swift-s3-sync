@@ -116,7 +116,11 @@ class TestCloudSyncBase(unittest.TestCase):
         'dst': {
             'user': 'test2:tester2',
             'key': 'testing2'
-        }
+        },
+        'admin': {
+            'user': 'admin:admin',
+            'key': 'admin',
+        },
     }
     S3_CREDS = {}
 
