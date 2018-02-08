@@ -24,11 +24,39 @@ try:
 except ImportError:
     # compat for < ss-swift-2.15.1.3
     from swift.common.request_helpers import get_listing_content_type
+from swift.proxy.controllers.base import get_account_info
 
 from .provider_factory import create_provider
 from .utils import (check_slo, SwiftPutWrapper, SwiftSloPutWrapper,
                     convert_to_local_headers)
 
+
+class S3SyncProxyFSSwitch(object):
+    def __init__(self, base_app, shunted_app, conf):
+        self.base_app = base_app
+        self.shunted_app = shunted_app
+        self.should_handle_proxyfs = utils.config_true_value(
+            conf.get('handle_proxyfs', 'false'))
+
+    def __call__(self, env, start_response):
+        if self.is_proxy_fs(env) == self.should_handle_proxyfs:
+            return self.shunted_app(env, start_response)
+        return self.base_app(env, start_response)
+
+    def is_proxy_fs(self, env):
+        if 'pfs.is_bimodal' in env:
+            return env['pfs.is_bimodal']
+
+        parts = env['PATH_INFO'].split('/', 3)
+        if len(parts) < 3 or parts[1] not in ('v1', 'v1.0'):
+            # If it's not a swift request, it can't be a ProxyFS request
+            return False
+
+        account_info = get_account_info(env, self.base_app, swift_source='')
+        # ignore status; rely on something elsewhere in the pipeline
+        # to propagate the error
+        return utils.config_true_value(account_info["sysmeta"].get(
+            'proxyfs-bimodal'))
 
 class S3SyncShunt(object):
     def __init__(self, app, conf_file, conf):
@@ -276,5 +304,6 @@ def filter_factory(global_conf, **local_conf):
 
     def app_filter(app):
         conf_file = conf.get('conf_file', '/etc/swift-s3-sync/sync.json')
-        return S3SyncShunt(app, conf_file, conf)
+        shunt = S3SyncShunt(app, conf_file, conf)
+        return S3SyncProxyFSSwitch(app, shunt, conf)
     return app_filter

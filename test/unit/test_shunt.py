@@ -145,25 +145,25 @@ class TestShunt(unittest.TestCase):
 
     def test_bad_config_noops(self):
         app = shunt.filter_factory(
-            {'conf_file': '/etc/doesnt/exist'})(FakeSwift())
+            {'conf_file': '/etc/doesnt/exist'})(FakeSwift()).shunted_app
         self.assertEqual(app.sync_profiles, {})
 
         with tempfile.NamedTemporaryFile() as fp:
             # empty
             app = shunt.filter_factory(
-                {'conf_file': fp.name})(FakeSwift())
+                {'conf_file': fp.name})(FakeSwift()).shunted_app
             self.assertEqual(app.sync_profiles, {})
 
             # not json
             fp.write('{"containers":')
             fp.flush()
             app = shunt.filter_factory(
-                {'conf_file': fp.name})(FakeSwift())
+                {'conf_file': fp.name})(FakeSwift()).shunted_app
             self.assertEqual(app.sync_profiles, {})
 
     def test_init(self):
         self.maxDiff = None
-        self.assertEqual(self.app.sync_profiles, {
+        self.assertEqual(self.app.shunted_app.sync_profiles, {
             ('AUTH_a', 'sw\xc3\xa9ft'): {
                 'account': 'AUTH_a',
                 'container': 'sw\xc3\xa9ft'.decode('utf-8'),
@@ -372,6 +372,7 @@ class TestShunt(unittest.TestCase):
                     [(e['REQUEST_METHOD'], e['PATH_INFO'])
                      for e in self.swift.calls],
                     [
+                        ('HEAD', '/v1/%s' % account),
                         ('GET', '/v1/%s/foo' % path),
                     ])
             elif is_slo:
@@ -379,6 +380,7 @@ class TestShunt(unittest.TestCase):
                     [(e['REQUEST_METHOD'], e['PATH_INFO'])
                      for e in self.swift.calls],
                     [
+                        ('HEAD', '/v1/%s' % account),
                         ('GET', '/v1/%s/foo' % path),
                         ('PUT', '/v1/%s/segments' % account),
                         ('PUT', '/v1/%s/segments/part1' % account),
@@ -391,6 +393,7 @@ class TestShunt(unittest.TestCase):
                     [(e['REQUEST_METHOD'], e['PATH_INFO'])
                      for e in self.swift.calls],
                     [
+                        ('HEAD', '/v1/%s' % account),
                         ('GET', '/v1/%s/foo' % path),
                         ('PUT', '/v1/%s/foo' % path),
                     ])
