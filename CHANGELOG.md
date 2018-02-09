@@ -1,3 +1,16 @@
+## 0.1.24.1 (2018-02-09)
+
+Features:
+
+    - Add ability to verify with an account override
+    - Add poll_interval to swift-s3-migrator
+    - Add docker compose to reduce setup burden
+
+Bug fixes:
+
+    - Clear endpoint when verifying against AWS
+    - Add some response validation to verify command
+
 ## 0.1.24 (2018-02-01)
 
 Bug fixes:
