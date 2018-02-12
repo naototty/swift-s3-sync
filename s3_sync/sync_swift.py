@@ -358,6 +358,8 @@ class SyncSwift(BaseSync):
                 headers, body = client.client.get_object(
                     bucket, key,
                     query_string='multipart-manifest=get')
+                if 'x-static-large-object' not in headers:
+                    return None
                 return json.loads(body)
             except Exception as e:
                 self.logger.warning('Failed to fetch the manifest: %s' % e)
