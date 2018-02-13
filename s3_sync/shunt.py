@@ -58,6 +58,7 @@ class S3SyncProxyFSSwitch(object):
         return utils.config_true_value(account_info["sysmeta"].get(
             'proxyfs-bimodal'))
 
+
 class S3SyncShunt(object):
     def __init__(self, app, conf_file, conf):
         self.logger = utils.get_logger(
