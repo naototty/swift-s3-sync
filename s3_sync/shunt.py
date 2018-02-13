@@ -28,7 +28,7 @@ from swift.proxy.controllers.base import get_account_info
 
 from .provider_factory import create_provider
 from .utils import (check_slo, SwiftPutWrapper, SwiftSloPutWrapper,
-                    convert_to_local_headers)
+                    convert_to_local_headers, response_is_complete)
 
 
 class S3SyncProxyFSSwitch(object):
@@ -233,7 +233,7 @@ class S3SyncShunt(object):
             status_code, headers, app_iter = provider.shunt_object(req, obj)
             put_headers = convert_to_local_headers(headers)
 
-            if status_code == 200:
+            if response_is_complete(status_code, headers):
                 if check_slo(put_headers) and manifest:
                     app_iter = SwiftSloPutWrapper(
                         app_iter, put_headers, req.environ['PATH_INFO'],
