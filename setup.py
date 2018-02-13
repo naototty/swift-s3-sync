@@ -10,7 +10,7 @@ setup(name='swift-s3-sync',
       packages=['s3_sync'],
       dependency_links=[
           'git://github.com/swiftstack/botocore.git@1.4.32.6#egg=botocore',
-          'git://github.com/swiftstack/container-crawler.git@0.0.11'
+          'git://github.com/swiftstack/container-crawler.git@0.0.12'
           '#egg=container-crawler',
       ],
       install_requires=['boto3==1.3.1'],
