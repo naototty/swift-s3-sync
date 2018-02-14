@@ -1,3 +1,24 @@
+## 0.1.24.1 (2018-02-14)
+
+Features:
+
+    - swift-s3-verify now makes assertions about the reponses received, rather
+      relying on tracebacks.
+    - swift-s3-verify now accepts a `--account` override when using the Swift
+      protocol.
+    - The shunt now supports ProxyFS. Note that this requires two copies of
+      the middleware in normal proxy pipeline: the first handles all
+      non-ProxyFS accounts while the second handles *only* ProxyFS accounts.
+      Further, the middleware is required in proxyfsd's no-auth pipeline.
+    - The shunt can now restore `206 Partial Content` responses that in fact
+      contain the entire content.
+
+Bug fixes:
+
+    - Make progress even when other nodes are down.
+    - Prevent busy-loops on small, mostly-empty clusters.
+    - swift-s3-verify now works against AWS.
+
 ## 0.1.24 (2018-02-01)
 
 Bug fixes:
