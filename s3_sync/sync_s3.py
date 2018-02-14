@@ -277,6 +277,8 @@ class SyncS3(BaseSync):
             limit = 1000
         args = dict(Bucket=self.aws_bucket)
         args['MaxKeys'] = limit
+        if prefix is None:
+            prefix = ''
         try:
             with self.client_pool.get_client() as s3_client:
                 if native:

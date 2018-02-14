@@ -136,7 +136,7 @@ class TestCloudSyncBase(unittest.TestCase):
             self.SWIFT_CREDS['dst']['user'],
             self.SWIFT_CREDS['dst']['key'])
         s3 = [container for container in self.test_conf['containers']
-              if container['protocol'] == 's3'][0]
+              if container.get('protocol', 's3') == 's3'][0]
         self.S3_CREDS.update({
             'endpoint': 'http://localhost:%d' % self.PORTS['s3'],
             'user': s3['aws_identity'],
@@ -150,7 +150,8 @@ class TestCloudSyncBase(unittest.TestCase):
             's3', config=conf,
             endpoint_url='http://localhost:%d' % self.PORTS['s3'])
 
-        for container in self.test_conf['containers']:
+        for container in \
+                self.test_conf['containers'] + self.test_conf['migrations']:
             if container['protocol'] == 'swift':
                 self.swift_dst.put_container(container['aws_bucket'])
             else:
@@ -196,3 +197,12 @@ class TestCloudSyncBase(unittest.TestCase):
     def _remove_swift_container(client, container):
         clear_swift_container(client, container)
         client.delete_container(container)
+
+    def local_swift(self, method, *args, **kwargs):
+        return getattr(self.swift_src, method)(*args, **kwargs)
+
+    def remote_swift(self, method, *args, **kwargs):
+        return getattr(self.swift_dst, method)(*args, **kwargs)
+
+    def s3(self, method, *args, **kwargs):
+        return getattr(self.s3_client, method)(*args, **kwargs)

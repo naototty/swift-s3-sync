@@ -295,7 +295,7 @@ class Migrator(object):
                 # following iteration.
                 if not local or local['name'] > source_list[index]['name']:
                     self.object_queue.put((
-                        self.config['container'], source_list[index]['name']))
+                        self.config['aws_bucket'], source_list[index]['name']))
                     index += 1
                     moved += 1
                 elif local['name'] < source_list[index]:
@@ -303,7 +303,7 @@ class Migrator(object):
                 else:
                     cmp_ret = cmp_object_entries(local, source_list[index])
                     if cmp_ret < 0:
-                        self.object_queue.put((self.config['container'],
+                        self.object_queue.put((self.config['aws_bucket'],
                                                source_list[index]['name']))
                         moved += 1
                     local = next(local_iter, None)
