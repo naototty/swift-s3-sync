@@ -135,8 +135,9 @@ class TestShunt(unittest.TestCase):
         with tempfile.NamedTemporaryFile() as fp:
             json.dump(self.conf, fp)
             fp.flush()
+            self.swift = FakeSwift()
             self.app = shunt.filter_factory(
-                {'conf_file': fp.name})(FakeSwift())
+                {'conf_file': fp.name})(self.swift)
 
     def tearDown(self):
         for patcher in self.patchers:
@@ -144,25 +145,25 @@ class TestShunt(unittest.TestCase):
 
     def test_bad_config_noops(self):
         app = shunt.filter_factory(
-            {'conf_file': '/etc/doesnt/exist'})(FakeSwift())
+            {'conf_file': '/etc/doesnt/exist'})(FakeSwift()).shunted_app
         self.assertEqual(app.sync_profiles, {})
 
         with tempfile.NamedTemporaryFile() as fp:
             # empty
             app = shunt.filter_factory(
-                {'conf_file': fp.name})(FakeSwift())
+                {'conf_file': fp.name})(FakeSwift()).shunted_app
             self.assertEqual(app.sync_profiles, {})
 
             # not json
             fp.write('{"containers":')
             fp.flush()
             app = shunt.filter_factory(
-                {'conf_file': fp.name})(FakeSwift())
+                {'conf_file': fp.name})(FakeSwift()).shunted_app
             self.assertEqual(app.sync_profiles, {})
 
     def test_init(self):
         self.maxDiff = None
-        self.assertEqual(self.app.sync_profiles, {
+        self.assertEqual(self.app.shunted_app.sync_profiles, {
             ('AUTH_a', 'sw\xc3\xa9ft'): {
                 'account': 'AUTH_a',
                 'container': 'sw\xc3\xa9ft'.decode('utf-8'),
@@ -363,43 +364,42 @@ class TestShunt(unittest.TestCase):
             mock_call.return_value = resp
             req = swob.Request.blank(u'/v1/%s/foo' % path, environ=env)
             status, headers, body_iter = req.call_application(self.app)
-            resp_body = ''
-            while True:
-                data = body_iter.read()
-                if not data:
-                    break
-                resp_body += data
+            resp_body = b''.join(body_iter)
+            path = path.encode('utf-8')
+            account = path.split('/', 1)[0]
             if not is_put_back:
-                self.assertEqual(1, len(self.app.app.calls))
+                self.assertEqual(
+                    [(e['REQUEST_METHOD'], e['PATH_INFO'])
+                     for e in self.swift.calls],
+                    [
+                        ('HEAD', '/v1/%s' % account),
+                        ('GET', '/v1/%s/foo' % path),
+                    ])
             elif is_slo:
-                self.assertEqual(4, len(self.app.app.calls))
                 self.assertEqual(
-                    'PUT', self.app.app.calls[1]['REQUEST_METHOD'])
-                account = path.split('/', 1)[0]
-                self.assertEqual((u'/v1/%s/segments' % account),
-                                 self.app.app.calls[1]['PATH_INFO'])
-                self.assertEqual(
-                    'PUT', self.app.app.calls[2]['REQUEST_METHOD'])
-                self.assertEqual((u'/v1/%s/segments/part1' % account),
-                                 self.app.app.calls[2]['PATH_INFO'])
-                self.assertEqual(
-                    'PUT', self.app.app.calls[3]['REQUEST_METHOD'])
-                self.assertEqual((u'/v1/%s/foo' % path).encode('utf-8'),
-                                 self.app.app.calls[3]['PATH_INFO'])
+                    [(e['REQUEST_METHOD'], e['PATH_INFO'])
+                     for e in self.swift.calls],
+                    [
+                        ('HEAD', '/v1/%s' % account),
+                        ('GET', '/v1/%s/foo' % path),
+                        ('PUT', '/v1/%s/segments' % account),
+                        ('PUT', '/v1/%s/segments/part1' % account),
+                        ('PUT', '/v1/%s/foo' % path),
+                    ])
                 self.assertEqual('multipart-manifest=put',
-                                 self.app.app.calls[3]['QUERY_STRING'])
+                                 self.swift.calls[-1]['QUERY_STRING'])
             else:
-                self.assertEqual(2, len(self.app.app.calls))
                 self.assertEqual(
-                    'PUT', self.app.app.calls[1]['REQUEST_METHOD'])
-                self.assertEqual((u'/v1/%s/foo' % path).encode('utf-8'),
-                                 self.app.app.calls[1]['PATH_INFO'])
-            self.assertEqual('GET', self.app.app.calls[0]['REQUEST_METHOD'])
-            self.assertEqual((u'/v1/%s/foo' % path).encode('utf-8'),
-                             self.app.app.calls[0]['PATH_INFO'])
+                    [(e['REQUEST_METHOD'], e['PATH_INFO'])
+                     for e in self.swift.calls],
+                    [
+                        ('HEAD', '/v1/%s' % account),
+                        ('GET', '/v1/%s/foo' % path),
+                        ('PUT', '/v1/%s/foo' % path),
+                    ])
             self.assertEqual(payload, resp_body)
             mock_call.reset_mock()
-            self.app.app.calls = []
+            self.swift.calls = []
 
     def test_list_container_no_shunt(self):
         req = swob.Request.blank(

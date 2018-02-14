@@ -46,6 +46,25 @@ class TestUtilsFunctions(unittest.TestCase):
         expected_tag = 'ce7989f0e2f1f3e4fdd2a01dda0844ae-2'
         self.assertEqual(expected_tag, utils.get_slo_etag(sample_manifest))
 
+    def test_response_is_complete(self):
+        def do_test(status, headers):
+            self.assertTrue(utils.response_is_complete(status, headers))
+
+        do_test(200, [('any', 'headers')])
+        do_test(206, [('Content-Range', 'bytes 0-1/2')])
+        do_test(206, [('Content-Range', 'bytes 0-1000/1001')])
+
+        def do_test(status, headers):
+            self.assertFalse(utils.response_is_complete(status, headers))
+
+        do_test(206, [('Content-Range', 'some random crap')])
+        do_test(206, [('Content-Range', 'bytes 1-1000/1001')])
+        do_test(206, [('Content-Range', 'bytes 0-1000/1100')])
+        do_test(206, [('Content-Range', 'bytes 0-1000/*')])
+        do_test(206, [('Content-Range', 'bytes 0-wat/999')])
+        do_test(206, [('no', 'Content-Range')])
+        do_test(500, [('Content-Range', 'bytes 0-1000/1001')])
+
 
 class FakeSwift(object):
     def __init__(self):

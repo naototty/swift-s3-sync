@@ -525,3 +525,25 @@ def check_slo(swift_meta):
     if SLO_HEADER not in swift_meta:
         return False
     return swift_meta[SLO_HEADER].lower() == 'true'
+
+
+def response_is_complete(status_code, headers):
+    if status_code == 200:
+        return True
+    if status_code != 206:
+        return False
+    # Let's see if that Partial Content really is "partial"
+    cr = ''
+    for header, value in headers:
+        if header.lower() == 'content-range':
+            cr = value
+            break
+    if not cr.startswith('bytes 0-'):
+        return False
+    end, length = cr[8:].partition('/')[::2]
+    try:
+        end = int(end)
+        length = int(length)
+    except ValueError:
+        return False
+    return end + 1 == length

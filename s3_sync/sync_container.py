@@ -27,7 +27,10 @@ import time
 
 import container_crawler.base_sync
 from .provider_factory import create_provider
-from container_crawler import RetryError
+from container_crawler import RetryError, SkipContainer
+
+
+PROXYFS_CHECKPOINT_CONTAINER = '.__checkpoint__'
 
 
 class SyncContainer(container_crawler.base_sync.BaseSync):
@@ -39,6 +42,8 @@ class SyncContainer(container_crawler.base_sync.BaseSync):
 
     def __init__(self, status_dir, sync_settings, max_conns=10,
                  per_account=False):
+        if sync_settings['container'] == PROXYFS_CHECKPOINT_CONTAINER:
+            raise SkipContainer
         super(SyncContainer, self).__init__(
             status_dir, sync_settings, per_account)
         self.logger = logging.getLogger('s3-sync')
