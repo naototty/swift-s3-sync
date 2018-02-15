@@ -228,7 +228,7 @@ S3Proxy running on the host machine, listening on port 10080.
 You can run integration tests in the container as well:
 
 ```
-docker-compose exec -e DOCKER=true swift-s3-sync nosetests /swift-s3-sync/test/integration
+docker exec -e DOCKER=true swift-s3-sync nosetests /swift-s3-sync/test/integration
 ```
 
 With sufficient effort you might be able to get enough dependencies installed on
@@ -261,7 +261,7 @@ To build the test container, run:
 To start the container, run:
 `docker run -P -d -v <swift-s3-sync checkout>:/swift-s3-sync swift-s3-sync`
 
-List running containers to inexpect port mappings:
+List running containers to inspect port mappings:
 `docker ps -a`
 
 ## Override ports
@@ -269,7 +269,7 @@ List running containers to inexpect port mappings:
 Docker seems to do open ports with SO_REUSEPORT which can get confusing if you
 have another service also trying to accept on the ports we use.
 
-First copy the provided defualt `docker-compose.override.yml` to `docker-compose.custom.yml`
+First copy the provided default `docker-compose.override.yml` to `docker-compose.custom.yml`
 
 Then edit to change your port mappings:
 
@@ -286,7 +286,7 @@ Here we've mapped the host port 8090 to the Swift proxy service running in the
 container on 8080 and host port 10090 to the S3Proxy service listening on 10080
 in the container.  You can edit your ST_AUTH env var and s3cfg as needed.
 
-You can you the provided `example.env` to tell tell docker-compose how to
+You can use the provided `example.env` to tell tell docker-compose how to
 automatically overlay your customized ports:
 
 `cp example.env .env`
