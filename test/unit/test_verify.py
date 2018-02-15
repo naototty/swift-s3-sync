@@ -177,9 +177,7 @@ class TestMainTrackClientCalls(unittest.TestCase):
     def assert_calls(self, mock_obj, calls):
         actual_calls = iter(mock_obj.mock_calls)
         for i, expected in enumerate(calls):
-            print 'looking for %r' % (expected,)
             for actual in actual_calls:
-                print '  found %r' % (actual,)
                 if actual == expected:
                     break
             else:

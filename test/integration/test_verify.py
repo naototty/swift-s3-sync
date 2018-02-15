@@ -46,7 +46,7 @@ class TestVerify(TestCloudSyncBase):
             bucket['Name']
             for bucket in self.s3_client.list_buckets()['Buckets']
         ] + [
-            bucket['Name'] + '/' + obj['Name']
+            bucket['Name'] + '/' + obj['Key']
             for bucket in self.s3_client.list_buckets()['Buckets']
             for obj in self.s3_client.list_objects(
                 Bucket=bucket['Name']).get('Contents', [])]
