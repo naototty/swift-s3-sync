@@ -295,7 +295,7 @@ class Migrator(object):
                 # following iteration.
                 if not local or local['name'] > source_list[index]['name']:
                     self.object_queue.put((
-                        self.config['container'], source_list[index]['name']))
+                        self.config['aws_bucket'], source_list[index]['name']))
                     index += 1
                     moved += 1
                 elif local['name'] < source_list[index]:
@@ -303,7 +303,7 @@ class Migrator(object):
                 else:
                     cmp_ret = cmp_object_entries(local, source_list[index])
                     if cmp_ret < 0:
-                        self.object_queue.put((self.config['container'],
+                        self.object_queue.put((self.config['aws_bucket'],
                                                source_list[index]['name']))
                         moved += 1
                     local = next(local_iter, None)
@@ -318,11 +318,8 @@ class Migrator(object):
         if resp.status != 200:
             raise MigrationError('Failed to GET %s/%s: %s' % (
                 container, key, resp.body))
-        if self.config.get('protocol', 's3') != 'swift':
-            put_headers = convert_to_swift_headers(resp.headers)
-        else:
-            put_headers = convert_to_local_headers(
-                resp.headers.items(), remove_timestamp=False)
+        put_headers = convert_to_local_headers(
+            resp.headers.items(), remove_timestamp=False)
         if 'x-object-manifest' in resp.headers:
             self.logger.warning('Skipping Dynamic Large Object %s/%s' % (
                 container, key))

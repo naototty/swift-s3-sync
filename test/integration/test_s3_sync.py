@@ -64,15 +64,6 @@ class TestCloudSync(TestCloudSyncBase):
             lambda cont: cont['protocol'] == 'swift' and
             not cont['retain_local'])
 
-    def local_swift(self, method, *args, **kwargs):
-        return getattr(self.__class__.swift_src, method)(*args, **kwargs)
-
-    def remote_swift(self, method, *args, **kwargs):
-        return getattr(self.__class__.swift_dst, method)(*args, **kwargs)
-
-    def s3(self, method, *args, **kwargs):
-        return getattr(self.__class__.s3_client, method)(*args, **kwargs)
-
     def _test_archive(
             self, key, content, mapping, get_etag, expected_location):
         etag = self.local_swift(

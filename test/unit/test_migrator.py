@@ -340,7 +340,7 @@ class TestMigrator(unittest.TestCase):
             'objects': {
                 'foo': {
                     'remote_headers': {
-                        'x-amz-meta-custom': 'custom',
+                        'x-object-meta-custom': 'custom',
                         'last-modified': create_timestamp(1.5e9)},
                     'expected_headers': {
                         'x-object-meta-custom': 'custom',
@@ -350,7 +350,7 @@ class TestMigrator(unittest.TestCase):
                 },
                 'bar': {
                     'remote_headers': {
-                        'x-amz-meta-custom': 'custom',
+                        'x-object-meta-custom': 'custom',
                         'last-modified': create_timestamp(1.4e9)},
                     'expected_headers': {
                         'x-object-meta-custom': 'custom',
