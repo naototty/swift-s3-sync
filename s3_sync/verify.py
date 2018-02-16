@@ -47,7 +47,7 @@ def validate_bucket(provider, swift_key, create_bucket):
     if create_bucket:
         # This should only be necessary on Swift; reach down to the client
         with provider.client_pool.get_client() as client:
-            result = client.client.put_container(provider.aws_bucket)
+            result = client.put_container(provider.aws_bucket)
         if result is not None:
             return result
 
@@ -80,7 +80,7 @@ def validate_bucket(provider, swift_key, create_bucket):
     if create_bucket:
         # Clean up after ourselves
         with provider.client_pool.get_client() as client:
-            result = client.client.delete_container(provider.aws_bucket)
+            result = client.delete_container(provider.aws_bucket)
         if result is not None:
             return result
 
@@ -119,9 +119,9 @@ def main(args=None):
         if not args.bucket:
             with provider.client_pool.get_client() as client:
                 if args.protocol == 's3':
-                    client.client.list_buckets()
+                    client.list_buckets()
                 else:
-                    client.client.get_account()
+                    client.get_account()
         else:
             if args.protocol == 's3':
                 swift_key = 'fabcab/cloud_sync_test'

@@ -193,14 +193,14 @@ class TestMainTrackClientCalls(unittest.TestCase):
         ])
         self.assertEqual(exit_arg, 0)
         mock_client = \
-            mock_get_client.return_value.__enter__.return_value.client
+            mock_get_client.return_value.__enter__.return_value
         self.assertEqual(mock_client.mock_calls, [
             mock.call.list_buckets(),
         ])
 
     def test_aws_with_bucket(self, mock_get_client):
         mock_client = \
-            mock_get_client.return_value.__enter__.return_value.client
+            mock_get_client.return_value.__enter__.return_value
         mock_client.head_object.side_effect = [
             None,
             {  # HEAD after PUT
@@ -272,14 +272,14 @@ class TestMainTrackClientCalls(unittest.TestCase):
         ])
         self.assertEqual(exit_arg, 0)
         mock_client = \
-            mock_get_client.return_value.__enter__.return_value.client
+            mock_get_client.return_value.__enter__.return_value
         self.assertEqual(mock_client.mock_calls, [
             mock.call.list_buckets(),
         ])
 
     def test_google_with_bucket(self, mock_get_client):
         mock_client = \
-            mock_get_client.return_value.__enter__.return_value.client
+            mock_get_client.return_value.__enter__.return_value
         mock_client.head_object.side_effect = [
             None,
             {  # HEAD after PUT
@@ -349,14 +349,14 @@ class TestMainTrackClientCalls(unittest.TestCase):
         ])
         self.assertEqual(exit_arg, 0)
         mock_client = \
-            mock_get_client.return_value.__enter__.return_value.client
+            mock_get_client.return_value.__enter__.return_value
         self.assertEqual(mock_client.mock_calls, [
             mock.call.get_account(),
         ])
 
     def test_swift_with_bucket(self, mock_get_client):
         mock_client = \
-            mock_get_client.return_value.__enter__.return_value.client
+            mock_get_client.return_value.__enter__.return_value
         mock_client.head_object.side_effect = [
             None,
             {'x-object-meta-cloud-sync': 'fabcab'},

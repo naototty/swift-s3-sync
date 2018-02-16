@@ -94,8 +94,7 @@ class SyncS3(BaseSync):
     def upload_object(self, swift_key, storage_policy_index, internal_client):
         s3_key = self.get_s3_name(swift_key)
         try:
-            with self.client_pool.get_client() as boto_client:
-                s3_client = boto_client.client
+            with self.client_pool.get_client() as s3_client:
                 s3_meta = s3_client.head_object(Bucket=self.aws_bucket,
                                                 Key=s3_key)
         except botocore.exceptions.ClientError as e:
@@ -131,7 +130,7 @@ class SyncS3(BaseSync):
                 self.update_metadata(swift_key, metadata)
                 return
 
-        with self.client_pool.get_client() as boto_client:
+        with self.client_pool.get_client() as s3_client:
             wrapper_stream = FileWrapper(internal_client,
                                          self.account,
                                          self.container,
@@ -139,8 +138,6 @@ class SyncS3(BaseSync):
                                          swift_req_hdrs)
             self.logger.debug('Uploading %s with meta: %r' % (
                 s3_key, wrapper_stream.get_s3_headers()))
-
-            s3_client = boto_client.client
 
             params = dict(
                 Bucket=self.aws_bucket,
@@ -156,8 +153,7 @@ class SyncS3(BaseSync):
 
     def _delete_not_found(self, s3_key):
         '''Deletes the object and ignores the 404 Not Found error.'''
-        with self.client_pool.get_client() as boto_client:
-            s3_client = boto_client.client
+        with self.client_pool.get_client() as s3_client:
             try:
                 s3_client.delete_object(Bucket=self.aws_bucket, Key=s3_key)
             except botocore.exceptions.ClientError as e:
@@ -272,8 +268,7 @@ class SyncS3(BaseSync):
                     entry, resp.body, lambda: None)
             return resp
         else:
-            with self.client_pool.get_client() as boto_client:
-                s3_client = boto_client.client
+            with self.client_pool.get_client() as s3_client:
                 return _perform_op(s3_client)
 
     def list_objects(self, marker, limit, prefix, delimiter=None,
@@ -283,8 +278,7 @@ class SyncS3(BaseSync):
         args = dict(Bucket=self.aws_bucket)
         args['MaxKeys'] = limit
         try:
-            with self.client_pool.get_client() as boto_client:
-                s3_client = boto_client.client
+            with self.client_pool.get_client() as s3_client:
                 if native:
                     key_prefix = ''
                 else:
@@ -391,7 +385,7 @@ class SyncS3(BaseSync):
             self._upload_slo(manifest, headers, s3_key, swift_req_hdrs,
                              internal_client)
 
-        with self.client_pool.get_client() as boto_client:
+        with self.client_pool.get_client() as s3_client:
             # We upload the manifest so that we can restore the object in
             # Swift and have it match the S3 multipart ETag. To avoid name
             # length issues, we hash the object name and append the suffix
@@ -403,15 +397,14 @@ class SyncS3(BaseSync):
                 ContentType='application/json')
             if self._is_amazon() and self.encryption:
                 params['ServerSideEncryption'] = 'AES256'
-            boto_client.client.put_object(**params)
+            s3_client.put_object(**params)
 
     def _upload_google_slo(self, manifest, metadata, s3_key, req_hdrs,
                            internal_client):
 
-        with self.client_pool.get_client() as boto_client:
+        with self.client_pool.get_client() as s3_client:
             slo_wrapper = SLOFileWrapper(
                 internal_client, self.account, manifest, metadata, req_hdrs)
-            s3_client = boto_client.client
             s3_client.put_object(Bucket=self.aws_bucket,
                                  Key=s3_key,
                                  Body=slo_wrapper,
@@ -451,8 +444,7 @@ class SyncS3(BaseSync):
 
     def _upload_slo(self, manifest, object_meta, s3_key, req_headers,
                     internal_client):
-        with self.client_pool.get_client() as boto_client:
-            s3_client = boto_client.client
+        with self.client_pool.get_client() as s3_client:
             params = dict(
                 Bucket=self.aws_bucket,
                 Key=s3_key,
@@ -489,8 +481,7 @@ class SyncS3(BaseSync):
             self._abort_upload(s3_key, upload_id)
             raise RuntimeError('Failed to upload an SLO as %s' % s3_key)
 
-        with self.client_pool.get_client() as boto_client:
-            s3_client = boto_client.client
+        with self.client_pool.get_client() as s3_client:
             # TODO: Validate the response ETag
             try:
                 s3_client.complete_multipart_upload(
@@ -508,12 +499,11 @@ class SyncS3(BaseSync):
 
     def _abort_upload(self, s3_key, upload_id, client=None):
         if not client:
-            with self.client_pool.get_client() as boto_client:
-                client = boto_client.client
-                client.abort_multipart_upload(
+            with self.client_pool.get_client() as s3_client:
+                s3_client.abort_multipart_upload(
                     Bucket=self.aws_bucket, Key=s3_key, UploadId=upload_id)
         else:
-            client.abort_multipart_upload(
+            s3_client.abort_multipart_upload(
                 Bucket=self.aws_bucket, Key=s3_key, UploadId=upload_id)
 
     def _upload_part_worker(self, upload_id, s3_key, req_headers, queue,
@@ -529,13 +519,12 @@ class SyncS3(BaseSync):
                 part_number, segment = work
                 container, obj = segment['name'].split('/', 2)[1:]
 
-                with self.client_pool.get_client() as boto_client:
+                with self.client_pool.get_client() as s3_client:
                     self.logger.debug('Uploading part %d from %s: %s bytes' % (
                         part_number, self.account + segment['name'],
                         segment['bytes']))
                     wrapper = FileWrapper(internal_client, self.account,
                                           container, obj, req_headers)
-                    s3_client = boto_client.client
                     resp = s3_client.upload_part(
                         Bucket=self.aws_bucket,
                         Body=wrapper,
@@ -579,9 +568,9 @@ class SyncS3(BaseSync):
     def get_manifest(self, key, bucket=None):
         if bucket is None:
             bucket = self.aws_bucket
-        with self.client_pool.get_client() as boto_client:
+        with self.client_pool.get_client() as s3_client:
             try:
-                resp = boto_client.client.get_object(
+                resp = s3_client.get_object(
                     Bucket=bucket,
                     Key=self.get_manifest_name(self.get_s3_name(key)))
                 return json.load(resp['Body'])
@@ -596,8 +585,7 @@ class SyncS3(BaseSync):
         # creating a new multipart upload, with copy-parts
         # NOTE: if we ever stich MPU objects, we need to replicate the
         # stitching calculation to get the offset correctly.
-        with self.client_pool.get_client() as boto_client:
-            s3_client = boto_client.client
+        with self.client_pool.get_client() as s3_client:
             params = dict(
                 Bucket=self.aws_bucket,
                 Key=s3_key,
@@ -646,8 +634,7 @@ class SyncS3(BaseSync):
         s3_key = self.get_s3_name(swift_key)
         self.logger.debug('Updating metadata for %s to %r' % (
             s3_key, convert_to_s3_headers(swift_meta)))
-        with self.client_pool.get_client() as boto_client:
-            s3_client = boto_client.client
+        with self.client_pool.get_client() as s3_client:
             if not check_slo(swift_meta) or self._google():
                 meta = convert_to_s3_headers(swift_meta)
                 if self._google() and check_slo(swift_meta):
