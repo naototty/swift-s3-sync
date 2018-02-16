@@ -318,11 +318,8 @@ class Migrator(object):
         if resp.status != 200:
             raise MigrationError('Failed to GET %s/%s: %s' % (
                 container, key, resp.body))
-        if self.config.get('protocol', 's3') != 'swift':
-            put_headers = convert_to_swift_headers(resp.headers)
-        else:
-            put_headers = convert_to_local_headers(
-                resp.headers.items(), remove_timestamp=False)
+        put_headers = convert_to_local_headers(
+            resp.headers.items(), remove_timestamp=False)
         if 'x-object-manifest' in resp.headers:
             self.logger.warning('Skipping Dynamic Large Object %s/%s' % (
                 container, key))
