@@ -195,13 +195,14 @@ class Migrator(object):
         self._stop_workers(self.object_queue)
 
         self.check_errors()
+        if not keys:
+            return
 
-        if keys:
-            marker = keys[-1]['name']
-            moved -= self.errors.qsize()
-            # TODO: record the number of errors, as well
-            self.status.save_migration(
-                self.config, marker, moved, len(keys), is_reset)
+        marker = keys[-1]['name']
+        moved -= self.errors.qsize()
+        # TODO: record the number of errors, as well
+        self.status.save_migration(
+            self.config, marker, moved, len(keys), is_reset)
 
     def check_errors(self):
         while not self.errors.empty():
@@ -222,7 +223,7 @@ class Migrator(object):
         if self.config.get('protocol', 's3') == 's3':
             list_args['native'] = True
         status, keys = self.provider.list_objects(
-            state.get('marker', ''),
+            state.get('marker', None),
             self.work_chunk,
             self.config.get('prefix'),
             **list_args)
@@ -246,7 +247,7 @@ class Migrator(object):
         return reset, keys, local_marker
 
     def _create_container(self, container, internal_client, timeout=1):
-        if self.config.get('protocol', 's3') == 'swift':
+        if self.config.get('protocol') == 'swift':
             resp = self.provider.head_bucket(container)
             if resp.status != 200:
                 raise MigrationError('Failed to HEAD bucket/container %s' %
@@ -311,14 +312,17 @@ class Migrator(object):
 
     def _migrate_object(self, container, key):
         args = {'bucket': container, 'native': True}
-        if self.config.get('protocol', '') == 'swift':
+        if self.config.get('protocol', 's3') == 'swift':
             args['resp_chunk_size'] = 65536
         resp = self.provider.get_object(key, **args)
         if resp.status != 200:
             raise MigrationError('Failed to GET %s/%s: %s' % (
                 container, key, resp.body))
-        put_headers = convert_to_local_headers(
-            resp.headers.items(), remove_timestamp=False)
+        if self.config.get('protocol', 's3') != 'swift':
+            put_headers = convert_to_swift_headers(resp.headers)
+        else:
+            put_headers = convert_to_local_headers(
+                resp.headers.items(), remove_timestamp=False)
         if 'x-object-manifest' in resp.headers:
             self.logger.warning('Skipping Dynamic Large Object %s/%s' % (
                 container, key))
