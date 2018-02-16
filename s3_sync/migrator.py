@@ -76,6 +76,41 @@ def cmp_meta(dest, source):
     return TIME_DIFF
 
 
+def _update_status_counts(status, moved_count, scanned_count, reset):
+    """
+    Update counts and finished keys in status.  On reset copy existing counts
+    to last_ counts if they've changed.
+    """
+    now = time.time()
+    if reset:
+        # the incoming counts are for the start of a new run, the counts in
+        # status are from the previous run, the counts in last_ are from
+        # *two* runs ago.  If the scan counts in status match up with the
+        # scan counts in last_ and we haven't moved anything we don't
+        # update last_
+        overwrite_last = False
+        if 'finished' in status:
+            if 'last_finished' in status:
+                was_something_moved = status['last_moved_count'] != 0
+                scan_counts_match = \
+                    status['scanned_count'] == status['last_scanned_count']
+                overwrite_last = was_something_moved or not scan_counts_match
+            else:
+                overwrite_last = True
+        if overwrite_last:
+            status['last_moved_count'] = status['moved_count']
+            status['last_scanned_count'] = status['scanned_count']
+            status['last_finished'] = status['finished']
+        status['moved_count'] = moved_count
+        status['scanned_count'] = scanned_count
+    else:
+        status['moved_count'] = status.get('moved_count', 0) + moved_count
+        status['scanned_count'] = status.get('scanned_count', 0) + \
+            scanned_count
+    # this is the end of this current pass
+    status['finished'] = now
+
+
 class Status(object):
     def __init__(self, status_location):
         self.status_location = status_location
@@ -111,13 +146,7 @@ class Status(object):
             status = entry['status']
 
         status['marker'] = marker
-        if not stats_reset:
-            status['moved_count'] = status.get('moved_count', 0) + moved_count
-            status['scanned_count'] = status.get('scanned_count', 0) + \
-                scanned_count
-        else:
-            status['moved_count'] = moved_count
-            status['scanned_count'] = scanned_count
+        _update_status_counts(status, moved_count, scanned_count, stats_reset)
         try:
             with open(self.status_location, 'w') as fh:
                 fh.truncate()

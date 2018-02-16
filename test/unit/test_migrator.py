@@ -13,10 +13,10 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 """
-
 from contextlib import contextmanager
 import datetime
 import errno
+import itertools
 import json
 import logging
 import mock
@@ -175,6 +175,7 @@ class TestMigratorUtils(unittest.TestCase):
         mock_file.__enter__ = lambda *args: mock_file
         mock_file.__exit__ = lambda *args: None
         mock_open.return_value = mock_file
+        start = int(time.time()) + 1
 
         test_cases = [
             ([{'aws_bucket': 'testbucket',
@@ -184,11 +185,12 @@ class TestMigratorUtils(unittest.TestCase):
                'account': 'AUTH_test',
                'protocol': 's3',
                'status': {
+                   'finished': start - 1,
                    'moved_count': 10,
                    'scanned_count': 20}}],
              {'marker': 'marker', 'moved_count': 1000, 'scanned_count': 1000,
               'reset_stats': False},
-             {'moved_count': 1010, 'scanned_count': 1020}),
+             {'finished': start, 'moved_count': 1010, 'scanned_count': 1020}),
             ([{'aws_bucket': 'testbucket',
                'aws_endpoint': '',
                'aws_identity': 'identity',
@@ -196,15 +198,18 @@ class TestMigratorUtils(unittest.TestCase):
                'account': 'AUTH_test',
                'protocol': 's3',
                'status': {
+                   'finished': start - 1,
                    'moved_count': 10,
                    'scanned_count': 20}}],
-             {'marker': 'marker', 'moved_count': 1000, 'scanned_count': 1000,
-              'reset_stats': True},
-             {'moved_count': 1000, 'scanned_count': 1000}),
+             {'marker': 'marker', 'moved_count': 1000,
+              'scanned_count': 1000, 'reset_stats': True},
+             {'finished': start, 'moved_count': 1000, 'scanned_count': 1000,
+              'last_finished': start - 1, 'last_moved_count': 10,
+              'last_scanned_count': 20}),
             ([],
-             {'marker': 'marker', 'moved_count': 1000, 'scanned_count': 1000,
-              'reset_stats': False},
-             {'moved_count': 1000, 'scanned_count': 1000}),
+             {'marker': 'marker', 'finished': start, 'moved_count': 1000,
+              'scanned_count': 1000, 'reset_stats': False},
+             {'finished': start, 'moved_count': 1000, 'scanned_count': 1000}),
         ]
         for status_list, test_params, write_status in test_cases:
             mock_file.reset_mock()
@@ -216,9 +221,13 @@ class TestMigratorUtils(unittest.TestCase):
             else:
                 migration = dict(status_list[0])
 
-            status.save_migration(
-                migration, test_params['marker'], test_params['moved_count'],
-                test_params['scanned_count'], test_params['reset_stats'])
+            with mock.patch('time.time') as mock_time:
+                mock_time.return_value = start
+                status.save_migration(
+                    migration, test_params['marker'],
+                    test_params['moved_count'],
+                    test_params['scanned_count'],
+                    test_params['reset_stats'])
             write_status['marker'] = test_params['marker']
             migration['status'] = write_status
             # gets the 1st argument in the call argument list
@@ -229,6 +238,7 @@ class TestMigratorUtils(unittest.TestCase):
     @mock.patch('s3_sync.migrator.os.mkdir')
     @mock.patch('s3_sync.migrator.open')
     def test_status_save_create(self, mock_open, mock_mkdir):
+        start = int(time.time()) + 1
         mock_file = mock.Mock()
         mock_file.__enter__ = lambda *args: mock_file
         mock_file.__exit__ = lambda *args: None
@@ -236,12 +246,15 @@ class TestMigratorUtils(unittest.TestCase):
 
         status = s3_sync.migrator.Status('/fake/location')
         status.status_list = []
-        status.save_migration({}, 'marker', 100, 100, False)
+        with mock.patch('time.time') as mock_time:
+            mock_time.return_value = start
+            status.save_migration({}, 'marker', 100, 100, False)
         mock_mkdir.assert_called_once_with('/fake', mode=0755)
         written = ''.join([call[1][0] for call in mock_file.write.mock_calls])
         self.assertEqual(json.loads(written),
-                         [{'status': {'marker': 'marker', 'moved_count': 100,
-                                      'scanned_count': 100}}])
+                         [{'status': {
+                             'marker': 'marker', 'moved_count': 100,
+                             'scanned_count': 100, 'finished': start}}])
 
     @mock.patch('s3_sync.migrator.os.mkdir')
     @mock.patch('s3_sync.migrator.open')
@@ -722,6 +735,177 @@ class TestMigrator(unittest.TestCase):
             else:
                 self.assertEqual(self.migrator.config['container'], cont)
                 self.assertEqual(manifest, json.loads(''.join(body)))
+
+
+class TestStatus(unittest.TestCase):
+
+    def setUp(self):
+        self.start = int(time.time()) + 1
+        patcher = mock.patch('time.time')
+        self.addCleanup(patcher.stop)
+        self.mock_time = patcher.start()
+        self.mock_time.side_effect = itertools.count(self.start)
+
+    def test_update_status_fresh(self):
+        status = {}
+        # initial pass
+        s3_sync.migrator._update_status_counts(status, 10, 10, True)
+        self.assertEqual({
+            'finished': self.start,
+            'moved_count': 10,
+            'scanned_count': 10,
+        }, status)
+
+    def test_update_status_update(self):
+        # second pass finishes
+        status = {
+            'finished': self.start - 1,
+            'moved_count': 10,
+            'scanned_count': 10,
+        }
+        s3_sync.migrator._update_status_counts(status, 8, 8, False)
+        self.assertEqual({
+            'finished': self.start,
+            'moved_count': 18,
+            'scanned_count': 18,
+        }, status)
+
+    def test_update_status_set_last(self):
+        # next pass has nothing to move
+        status = {
+            'finished': self.start - 1,
+            'moved_count': 18,
+            'scanned_count': 18,
+        }
+        s3_sync.migrator._update_status_counts(status, 0, 10, True)
+        self.assertEqual({
+            'finished': self.start,
+            'moved_count': 0,
+            'scanned_count': 10,
+            'last_finished': self.start - 1,
+            'last_moved_count': 18,
+            'last_scanned_count': 18,
+        }, status)
+
+    def test_update_status_update_current_maintains_last(self):
+        # still nothing
+        status = {
+            'finished': self.start - 1,
+            'moved_count': 0,
+            'scanned_count': 10,
+            'last_finished': self.start - 2,
+            'last_moved_count': 18,
+            'last_scanned_count': 18,
+        }
+        s3_sync.migrator._update_status_counts(status, 0, 8, False)
+        self.assertEqual({
+            'finished': self.start,
+            'moved_count': 0,
+            'scanned_count': 18,
+            'last_finished': self.start - 2,
+            'last_moved_count': 18,
+            'last_scanned_count': 18,
+        }, status)
+
+    def test_update_status_finished_resets_last(self):
+        # fresh run, but nothing moved and scanned matches!
+        status = {
+            'finished': self.start - 1,
+            'moved_count': 0,
+            'scanned_count': 18,
+            'last_finished': self.start - 3,
+            'last_moved_count': 18,
+            'last_scanned_count': 18,
+        }
+        s3_sync.migrator._update_status_counts(status, 0, 10, True)
+        self.assertEqual({
+            'finished': self.start,
+            'moved_count': 0,
+            'scanned_count': 10,
+            'last_finished': self.start - 1,
+            'last_moved_count': 0,
+            'last_scanned_count': 18,
+        }, status)
+
+    def test_update_status_update_with_new_move(self):
+        # oh weird, something new showed up!?
+        status = {
+            'finished': self.start - 3,
+            'moved_count': 0,
+            'scanned_count': 10,
+            'last_finished': self.start - 4,
+            'last_moved_count': 0,
+            'last_scanned_count': 18,
+        }
+        s3_sync.migrator._update_status_counts(status, 1, 9, False)
+        self.assertEqual({
+            'finished': self.start,
+            'moved_count': 1,
+            'scanned_count': 19,
+            'last_finished': self.start - 4,
+            'last_moved_count': 0,
+            'last_scanned_count': 18,
+        }, status)
+
+    def test_update_status_finished_new_move_resets_last(self):
+        # ok, back to borning nothing
+        status = {
+            'finished': self.start - 3,
+            'moved_count': 1,
+            'scanned_count': 19,
+            'last_finished': self.start - 5,
+            'last_moved_count': 0,
+            'last_scanned_count': 18,
+        }
+        s3_sync.migrator._update_status_counts(status, 0, 10, True)
+        self.assertEqual({
+            'finished': self.start,
+            'moved_count': 0,
+            'scanned_count': 10,
+            'last_finished': self.start - 3,
+            'last_moved_count': 1,
+            'last_scanned_count': 19,
+        }, status)
+
+    def test_update_status_finished_no_moves_resets_last(self):
+        # and we're done here...
+        status = {
+            'finished': self.start - 5,
+            'moved_count': 0,
+            'scanned_count': 19,
+            'last_finished': self.start - 7,
+            'last_moved_count': 1,
+            'last_scanned_count': 19,
+        }
+        s3_sync.migrator._update_status_counts(status, 0, 10, True)
+        self.assertEqual({
+            'finished': self.start,
+            'moved_count': 0,
+            'scanned_count': 10,
+            'last_finished': self.start - 5,
+            'last_moved_count': 0,
+            'last_scanned_count': 19,
+        }, status)
+
+    def test_update_status_clean_finish_does_not_reset_last(self):
+        # and we'll stay this way, indefinately...
+        status = {
+            'finished': self.start - 2,
+            'moved_count': 0,
+            'scanned_count': 19,
+            'last_finished': self.start - 7,
+            'last_moved_count': 0,
+            'last_scanned_count': 19,
+        }
+        s3_sync.migrator._update_status_counts(status, 0, 10, True)
+        self.assertEqual({
+            'finished': self.start,
+            'moved_count': 0,
+            'scanned_count': 10,
+            'last_finished': self.start - 7,
+            'last_moved_count': 0,
+            'last_scanned_count': 19,
+        }, status)
 
 
 class TestMain(unittest.TestCase):
