@@ -1,4 +1,4 @@
-## 0.1.24.2 (2018-02-14)
+## 0.1.24.3 (2018-02-20)
 
 Features:
 
@@ -12,12 +12,16 @@ Features:
       Further, the middleware is required in proxyfsd's no-auth pipeline.
     - The shunt can now restore `206 Partial Content` responses that in fact
       contain the entire content.
+    - Keep migrator scan and moved counts for last run in status file
 
 Bug fixes:
 
     - Make progress even when other nodes are down.
     - Prevent busy-loops on small, mostly-empty clusters.
     - swift-s3-verify now works against AWS.
+    - Do translate headers twice from the remote to local. In the case of S3,
+      this would mangle the ETag, causing the PUT to fail.
+
 
 ## 0.1.24 (2018-02-01)
 
