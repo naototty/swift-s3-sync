@@ -907,6 +907,29 @@ class TestStatus(unittest.TestCase):
             'last_scanned_count': 19,
         }, status)
 
+    def test_update_legacy(self):
+        # we start with less info
+        status = {
+            'moved_count': 0,
+            'scanned_count': 8,
+        }
+        s3_sync.migrator._update_status_counts(status, 0, 8, True)
+        self.assertEqual({
+            'finished': self.start,
+            'moved_count': 0,
+            'scanned_count': 8,
+        }, status)
+        s3_sync.migrator._update_status_counts(status, 0, 8, True)
+        # ... but we get there eventually
+        self.assertEqual({
+            'finished': self.start + 1,
+            'moved_count': 0,
+            'scanned_count': 8,
+            'last_finished': self.start,
+            'last_moved_count': 0,
+            'last_scanned_count': 8,
+        }, status)
+
 
 class TestMain(unittest.TestCase):
 
