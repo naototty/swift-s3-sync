@@ -49,7 +49,7 @@ python -m s3_sync --log-level debug \
 swift-s3-migrator --log-level debug \
     --config /swift-s3-sync/test/container/swift-s3-sync.conf &
 
-/bin/bash /s3proxy/s3proxy \
+/usr/bin/java -DLOG_LEVEL=debug -jar /s3proxy/s3proxy \
     --properties /swift-s3-sync/test/container/s3proxy.properties \
     2>&1 > /var/log/s3proxy.log &
 
